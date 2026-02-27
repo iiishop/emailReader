@@ -1,0 +1,16 @@
+[project]
+name = "email-reader-backend"
+version = "0.1.0"
+description = "EmailReader backend - reads Thunderbird local mail"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.133.1",
+    "html2text>=2025.4.15",
+    "httpx>=0.28.1",
+    "pyyaml>=6.0.3",
+    "uvicorn[standard]>=0.41.0",
+    "pywebview>=5.0",
+]
+
+[tool.uv]
+dev-dependencies = []
