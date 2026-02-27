@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+.venv/
+venv/
+env/
+.env
+.env.local
+.env.*.local
+
+# Build / dist
+frontend/dist/
+backend/dist/
+*.egg-info/
+.eggs/
+*.egg
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs / data (optional: remove if you want to track)
+*.log
+backend/data/
+*.sqlite
+*.db
+
+# UV / pip
+.uv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Test / coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Misc
+*.bak
+*.tmp
+.cache/

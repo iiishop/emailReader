@@ -1,0 +1,115 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ────────────── 浅色主题（默认） ────────────── */
+:root {
+  /* 基础背景 */
+  --bg:           #f4f5f7;
+  --bg-card:      #ffffff;
+  --bg-hover:     #eceef2;
+  --bg-sidebar:   #1e2130;
+
+  /* 边框 */
+  --border:       #e2e5ec;
+  --border-light: #edf0f5;
+
+  /* 主色调 */
+  --accent:       #5b5ef4;
+  --accent-light: #818cf8;
+  --accent-dim:   rgba(91,94,244,.1);
+
+  /* 文字 */
+  --text-primary:   #111827;
+  --text-secondary: #4b5563;
+  --text-muted:     #9ca3af;
+  --text-sidebar:   #c8cce0;
+  --text-sidebar-muted: #6b7280;
+
+  /* 语义色 */
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger:  #e11d48;
+
+  /* 邮件品牌色 */
+  --gmail:   #ea4335;
+  --outlook: #0078d4;
+  --mail163: #cc0000;
+  --qq:      #12b7f5;
+  --imap:    #6366f1;
+  --unread-bright-bg: #ef4444;
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  --shadow:    0 4px 12px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.05);
+  --shadow-lg: 0 12px 32px rgba(0,0,0,.12), 0 4px 8px rgba(0,0,0,.06);
+
+  /* 布局 */
+  --sidebar-w: 52px;
+  --radius-sm: 6px;
+  --radius:    10px;
+  --radius-lg: 14px;
+}
+
+/* ────────────── 深色主题 ────────────── */
+[data-theme="dark"] {
+  --bg:           #0d0f18;
+  --bg-card:      #161926;
+  --bg-hover:     #1e2235;
+  --bg-sidebar:   #0a0c14;
+
+  --border:       #252840;
+  --border-light: #1e2235;
+
+  --accent:       #6366f1;
+  --accent-light: #818cf8;
+  --accent-dim:   rgba(99,102,241,.12);
+
+  --text-primary:   #e8ecf4;
+  --text-secondary: #8892a8;
+  --text-muted:     #4e5568;
+  --text-sidebar:   #9ba3bf;
+  --text-sidebar-muted: #4e5568;
+
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger:  #f43f5e;
+
+  --gmail:   #ea4335;
+  --outlook: #0078d4;
+  --mail163: #cc0000;
+  --qq:      #12b7f5;
+  --imap:    #6366f1;
+  --unread-bright-bg: #ef4444;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
+  --shadow:    0 4px 16px rgba(0,0,0,.4);
+  --shadow-lg: 0 16px 48px rgba(0,0,0,.6);
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: 'Geist', 'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
