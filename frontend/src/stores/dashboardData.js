@@ -25,6 +25,7 @@ export const useDashboardDataStore = defineStore('dashboardData', () => {
   const extractedAt     = ref(null)
   const isExtracting    = ref(false)
   const extractError    = ref('')
+  const extractProgress = ref(null)  // { current, total, message } 或 null
 
   // ── 账号 Tab 过滤 ─────────────────────────────────────────────────────────
   // 'all' 或某个 email 字符串
@@ -162,7 +163,8 @@ export const useDashboardDataStore = defineStore('dashboardData', () => {
   // ── 加载 Dashboard 数据 ────────────────────────────────────────────────────
   async function loadData() {
     try {
-      const res  = await fetch('/api/dashboard/data')
+      // 禁止缓存，否则 PyWebView/浏览器可能一直返回旧的 is_extracting: true
+      const res  = await fetch('/api/dashboard/data?t=' + Date.now(), { cache: 'no-store' })
       const data = await res.json()
       events.value         = data.events         ?? []
       topics.value         = data.topics         ?? []
@@ -172,10 +174,18 @@ export const useDashboardDataStore = defineStore('dashboardData', () => {
       accountStats.value   = data.account_stats  ?? {}
       accEvents.value      = data.acc_events     ?? {}
       stats.value          = data.stats          ?? {}
-      extractedAt.value    = data.extracted_at   ?? null
-      isExtracting.value   = data.is_extracting  ?? false
-      extractError.value   = data.extract_error  ?? ''
+      extractedAt.value    = data.extracted_at     ?? null
+      isExtracting.value   = data.is_extracting    ?? false
+      extractError.value   = data.extract_error    ?? ''
+      extractProgress.value = data.extract_progress ?? null
+      // 调试：提取状态变化时打 log，便于确认是否收到「已完成」
+      if (data.is_extracting || data.extract_progress) {
+        console.log('[Dashboard] loadData 提取中:', data.is_extracting, data.extract_progress)
+      } else if (data.extracted_at || (data.events && data.events.length)) {
+        console.log('[Dashboard] loadData 已完成:', data.events?.length, 'events', !!data.brief)
+      }
     } catch (e) {
+      isExtracting.value = false
       extractError.value = e.message
     }
   }
@@ -195,11 +205,12 @@ export const useDashboardDataStore = defineStore('dashboardData', () => {
           api_key:  settings.apiKey,
           model:    settings.selectedModel,
           ai_days:  settings.aiDays,
-          max_emails_per_folder: 80,
+          max_emails_per_folder: 500,
           max_chars_per_email:   1200,
         }),
       })
-      // 轮询直到完成
+      // 立即拉一次，让界面尽快显示「提取中」并拿到进度
+      await loadData()
       _pollExtract()
     } catch (e) {
       isExtracting.value = false
@@ -211,8 +222,8 @@ export const useDashboardDataStore = defineStore('dashboardData', () => {
   let _pollCount = 0
   function _pollExtract() {
     clearTimeout(_pollTimer)
-    // 前几次快轮询，之后放慢
-    const delay = _pollCount < 3 ? 2000 : 5000
+    // 前几次快轮询，便于进度条更新
+    const delay = _pollCount < 5 ? 1500 : 5000
     _pollTimer = setTimeout(async () => {
       _pollCount++
       await loadData()
@@ -334,7 +345,7 @@ export const useDashboardDataStore = defineStore('dashboardData', () => {
     // raw data
     events, topics, people, brief, stats,
     accountBriefs, accountStats, accEvents,
-    extractedAt, isExtracting, extractError,
+    extractedAt, isExtracting, extractError, extractProgress,
     // account filter
     selectedAccount,
     // filtered computed

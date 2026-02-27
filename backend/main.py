@@ -588,8 +588,8 @@ def _mount_spa(dist_dir: Path) -> None:
     _spa_mounted = True
 
 
-if DIST_DIR.exists():
-    _mount_spa(DIST_DIR)
+# 不在模块加载时挂载 SPA，否则通配路由会先于后面的 /api/* 注册，导致 /api/dashboard/data 等返回 index.html
+# 见文件末尾：所有 API 路由注册后再挂载
 
 
 # ─── RAG：邮件相关性筛选 ──────────────────────────────────────────────────────
@@ -736,11 +736,30 @@ async def fetch_email_bodies(body: FetchBodiesRequest):
 # Dashboard — 事件提取 / 简报 / Todo 持久化
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_DATA_DIR      = Path(__file__).parent / "data"
+_DATA_DIR      = (Path(__file__).resolve().parent / "data")
 _DASHBOARD_JSON = _DATA_DIR / "dashboard.json"
 _TODOS_JSON     = _DATA_DIR / "todos.json"
 _BRIEFS_JSON    = _DATA_DIR / "briefs.json"
-_DATA_DIR.mkdir(exist_ok=True)
+_CONFIG_JSON    = _DATA_DIR / "config.json"
+_DATA_DIR.mkdir(parents=True, exist_ok=True)
+# 启动时打印配置路径，便于排查「重开配置丢失」
+print(f"[Config] 数据目录: {_DATA_DIR}")
+print(f"[Config] 配置文件: {_CONFIG_JSON}")
+
+# 前端原 localStorage 配置改为后端持久化，供 PyWebView 等无 localStorage 环境使用
+_DEFAULT_CONFIG = {
+    "settings": {
+        "apiBaseUrl": "https://api.openai.com/v1",
+        "apiKey": "",
+        "selectedModel": "",
+        "systemPrompt": "你是一个邮件助手，请用简洁、专业的语气帮助用户处理和理解邮件内容。",
+        "aiDays": 7,
+        "relevanceThreshold": 60,
+        "refreshInterval": 5,
+    },
+    "theme": "light",
+    "assistantPos": {"x": None, "y": None},
+}
 
 
 def _load_json(path: Path, default):
@@ -756,12 +775,63 @@ def _save_json(path: Path, data) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+# ─── 应用配置（替代前端 localStorage）──────────────────────────────────────────
+
+class ConfigUpdate(BaseModel):
+    """部分更新，未传的字段不覆盖."""
+    settings: dict | None = None
+    theme: str | None = None
+    assistantPos: dict | None = None
+
+
+@app.get("/api/config")
+def get_config():
+    """返回持久化配置：settings、theme、assistantPos，供 PyWebView 等无 localStorage 环境使用."""
+    raw = _load_json(_CONFIG_JSON, None)
+    if raw is None:
+        print("[Config] GET: 未找到配置文件，返回默认值")
+        return _DEFAULT_CONFIG.copy()
+    out = _DEFAULT_CONFIG.copy()
+    if isinstance(raw.get("settings"), dict):
+        out["settings"] = {**out["settings"], **raw["settings"]}
+    if raw.get("theme") in ("light", "dark"):
+        out["theme"] = raw["theme"]
+    if isinstance(raw.get("assistantPos"), dict):
+        out["assistantPos"] = {
+            "x": raw["assistantPos"].get("x"),
+            "y": raw["assistantPos"].get("y"),
+        }
+    return out
+
+
+@app.put("/api/config")
+def put_config(body: ConfigUpdate):
+    """部分更新配置并持久化."""
+    try:
+        _DATA_DIR.mkdir(parents=True, exist_ok=True)
+        current = _load_json(_CONFIG_JSON, _DEFAULT_CONFIG.copy())
+        if not isinstance(current, dict):
+            current = _DEFAULT_CONFIG.copy()
+        if body.settings is not None:
+            current["settings"] = {**(current.get("settings") or {}), **body.settings}
+        if body.theme is not None:
+            current["theme"] = body.theme
+        if body.assistantPos is not None:
+            current["assistantPos"] = {**(current.get("assistantPos") or {}), **body.assistantPos}
+        _save_json(_CONFIG_JSON, current)
+        print(f"[Config] PUT: 已保存到 {_CONFIG_JSON}")
+        return get_config()
+    except Exception as e:
+        print(f"[Config] PUT 失败: {e}")
+        raise HTTPException(500, detail=f"配置保存失败: {e}")
+
+
 # ─── 读取 Dashboard 数据 ──────────────────────────────────────────────────────
 
 @app.get("/api/dashboard/data")
 def get_dashboard_data():
     """返回最近一次提取的 Dashboard 数据（事件、话题、联系人、简报）。"""
-    return _load_json(_DASHBOARD_JSON, {
+    data = _load_json(_DASHBOARD_JSON, {
         "events":    [],
         "topics":    [],
         "people":    [],
@@ -770,6 +840,16 @@ def get_dashboard_data():
         "extracted_at": None,
         "is_extracting": False,
     })
+    # 调试：提取中时打印进度；完成后也打一条，确认前端能拿到结束状态
+    if data.get("is_extracting"):
+        prog = data.get("extract_progress")
+        if prog:
+            print(f"[Dashboard] 提取进度 → 前端: {prog.get('current')}/{prog.get('total')} {prog.get('message', '')}")
+        else:
+            print("[Dashboard] 提取中，尚未写入进度（可能 work_items 为空或尚未开始写）")
+    else:
+        print(f"[Dashboard] API 返回已完成 is_extracting=False events={len(data.get('events') or [])} brief_len={len(data.get('brief') or '')}")
+    return data
 
 
 @app.get("/api/dashboard/debug-log")
@@ -792,8 +872,9 @@ class ExtractRequest(BaseModel):
     api_key:  str
     model:    str
     ai_days:  int = 7
-    max_emails_per_folder: int = 100
+    max_emails_per_folder: int = 500  # 仅按天数筛选后的上限，不刻意压低；设置里填几天就读该天数内邮件
     max_chars_per_email:   int = 1500
+    max_folders_per_account: int = 3  # 每账号最多处理几个文件夹（INBOX 优先）
 
 
 async def _do_extract(req: ExtractRequest) -> None:
@@ -802,6 +883,12 @@ async def _do_extract(req: ExtractRequest) -> None:
     import datetime
     import logging
     log = logging.getLogger("extract")
+    if not log.handlers:
+        h = logging.StreamHandler()
+        h.setFormatter(logging.Formatter("[extract] %(message)s"))
+        log.addHandler(h)
+        log.setLevel(logging.INFO)
+    print("[提取] 任务开始")
 
     # 标记提取中
     existing = _load_json(_DASHBOARD_JSON, {})
@@ -829,130 +916,162 @@ async def _do_extract(req: ExtractRequest) -> None:
         cutoff = today - datetime.timedelta(days=req.ai_days)
         _log(f"提取范围: {req.ai_days} 天，截止 {cutoff}")
 
+        # 预计算待处理列表，用于进度条 total
+        work_items: list[tuple] = []
         for acc in accounts:
             mail_dir = acc.get("mail_dir", "")
-            acc_email = acc.get("email", "?")
-            _log(f"--- 账号: {acc_email}, mail_dir: {mail_dir}")
             if not mail_dir or not Path(mail_dir).exists():
-                _log(f"  跳过：mail_dir 不存在")
+                continue
+            all_folders = list_folders(mail_dir)
+            folders = sorted(
+                all_folders,
+                key=lambda f: (0 if (f.get("name") or "").upper() == "INBOX" else 1, f.get("name") or ""),
+            )[: req.max_folders_per_account]
+            for folder in folders:
+                mbox_path = str(Path(mail_dir) / folder["folder_id"].replace("/", "\\"))
+                if Path(mbox_path).exists():
+                    work_items.append((acc, folder, mail_dir))
+        total_folders = len(work_items)
+        _log(f"待处理文件夹总数: {total_folders}")
+        print(f"[提取] 待处理文件夹总数: {total_folders}（0 则不会显示进度条）")
+
+        def _save_progress(current: int, message: str):
+            try:
+                prog = _load_json(_DASHBOARD_JSON, {})
+                prog["is_extracting"] = True
+                prog["extract_log"] = list(extract_log)
+                prog["extract_progress"] = {"current": current, "total": total_folders, "message": message}
+                _save_json(_DASHBOARD_JSON, prog)
+                print(f"[提取] 进度已写入: {current}/{total_folders} — {message}")
+            except Exception as e:
+                print(f"[提取] 写入进度失败: {e}")
+
+        current_step = 0
+        for acc, folder, mail_dir in work_items:
+            current_step += 1
+            acc_email = acc.get("email", "?")
+            folder_name = folder.get("name", "?")
+            _save_progress(current_step, f"{acc_email} / {folder_name}")
+
+            _log(f"--- 账号: {acc_email}, mail_dir: {mail_dir}")
+            _log(f"  [{folder_name}] 开始处理 ({current_step}/{total_folders})")
+
+            mbox_path = str(Path(mail_dir) / folder["folder_id"].replace("/", "\\"))
+
+            try:
+                idx = MboxIndex.get(mbox_path)
+            except Exception as e:
+                _log(f"  [{folder_name}] 索引失败: {e}")
                 continue
 
-            folders = list_folders(mail_dir)
-            _log(f"  文件夹数: {len(folders)}")
+            filtered = [
+                e for e in idx.entries
+                if e.get("epoch_ms")
+                and datetime.datetime.fromtimestamp(
+                    e["epoch_ms"] / 1000, datetime.timezone.utc
+                ).date()
+                >= cutoff
+            ][: req.max_emails_per_folder]
 
-            for folder in folders:
-                folder_name = folder.get("name", "?")
-                mbox_path = str(Path(mail_dir) / folder["folder_id"].replace("/", "\\"))
-                if not Path(mbox_path).exists():
-                    continue
+            _log(f"  [{folder_name}] 符合日期的邮件: {len(filtered)}")
+            if not filtered:
+                continue
 
-                try:
-                    idx = MboxIndex.get(mbox_path)
-                except Exception as e:
-                    _log(f"  [{folder_name}] 索引失败: {e}")
-                    continue
+            try:
+                mbox = _mb.mbox(mbox_path, create=False)
+            except Exception as e:
+                _log(f"  [{folder_name}] 打开 mbox 失败: {e}")
+                continue
 
-                filtered = [
-                    e for e in idx.entries
-                    if e.get("epoch_ms") and
-                       datetime.datetime.utcfromtimestamp(e["epoch_ms"] / 1000).date() >= cutoff
-                ][:req.max_emails_per_folder]
+            def _read_folder_bodies():
+                items, metas = [], []
+                for entry in filtered:
+                    key  = entry.get("key", "")
+                    body = _read_msg_body(mbox, key, req.max_chars_per_email)
+                    items.append({
+                        "key":     key,
+                        "subject": entry.get("subject", ""),
+                        "from":    entry.get("from", ""),
+                        "date":    entry.get("date", ""),
+                        "body":    body,
+                    })
+                    metas.append({
+                        "subject": entry.get("subject", ""),
+                        "from":    entry.get("from", ""),
+                        "date":    entry.get("date", ""),
+                        "account": acc.get("email", ""),
+                        "folder":  folder.get("name", ""),
+                    })
+                mbox.close()
+                return items, metas
 
-                _log(f"  [{folder_name}] 符合日期的邮件: {len(filtered)}")
-                if not filtered:
-                    continue
+            emails_for_ai, folder_meta = await _run(_read_folder_bodies)
+            all_meta.extend(folder_meta)
+            acc_meta.setdefault(acc_email, []).extend(folder_meta)
+            _log(f"  [{folder_name}] 读取正文完成: {len(emails_for_ai)} 封")
 
-                try:
-                    mbox = _mb.mbox(mbox_path, create=False)
-                except Exception as e:
-                    _log(f"  [{folder_name}] 打开 mbox 失败: {e}")
-                    continue
+            if not emails_for_ai:
+                continue
 
-                def _read_folder_bodies():
-                    items, metas = [], []
-                    for entry in filtered:
-                        key  = entry.get("key", "")
-                        body = _read_msg_body(mbox, key, req.max_chars_per_email)
-                        items.append({
-                            "key":     key,
-                            "subject": entry.get("subject", ""),
-                            "from":    entry.get("from", ""),
-                            "date":    entry.get("date", ""),
-                            "body":    body,
-                        })
-                        metas.append({
-                            "subject": entry.get("subject", ""),
-                            "from":    entry.get("from", ""),
-                            "date":    entry.get("date", ""),
-                            "account": acc.get("email", ""),
-                            "folder":  folder.get("name", ""),
-                        })
-                    mbox.close()
-                    return items, metas
-
-                emails_for_ai, folder_meta = await _run(_read_folder_bodies)
-                all_meta.extend(folder_meta)
-                # 按账号归档
-                acc_email = acc.get("email", "?")
-                acc_meta.setdefault(acc_email, []).extend(folder_meta)
-                _log(f"  [{folder_name}] 读取正文完成: {len(emails_for_ai)} 封")
-
-                if not emails_for_ai:
-                    continue
-
-                # 调用 AI 提取事件
-                system_p = get_prompt("extract", "system", current_year=today.year)
-                user_p   = get_prompt(
-                    "extract", "user_template",
-                    today=today.isoformat(),
-                    count=len(emails_for_ai),
-                    emails_json=json.dumps(emails_for_ai, ensure_ascii=False),
-                )
-                base_url = _normalize_base_url(req.base_url)
-                payload  = _build_chat_payload(
-                    model=req.model,
-                    messages=[
-                        {"role": "system", "content": system_p},
-                        {"role": "user",   "content": user_p},
-                    ],
-                    temperature=0.1,
-                    max_tokens=2000,
-                )
-                try:
-                    _log(f"  [{folder_name}] 调用 AI ({req.model})…")
-                    async with httpx.AsyncClient(timeout=120) as client:
-                        resp = await client.post(
-                            f"{base_url}/chat/completions",
-                            headers={"Authorization": f"Bearer {req.api_key}",
-                                     "Content-Type": "application/json"},
-                            json=payload,
-                        )
-                    _log(f"  [{folder_name}] AI 响应状态: {resp.status_code}")
-                    if resp.status_code == 200:
-                        raw = resp.json()["choices"][0]["message"]["content"].strip()
-                        if raw.startswith("```"):
-                            raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-                        try:
-                            events = json.loads(raw)
-                            if isinstance(events, list):
-                                # 用邮件真实接收时间填补“仅日期”或整点占位（00:00/08:00 等）
-                                key_to_date = {it["key"]: it["date"] for it in emails_for_ai if it.get("date")}
-                                for ev in events:
-                                    ev["account"] = acc.get("email", "")
-                                    ev["folder"]  = folder.get("name", "")
-                                    _patch_event_datetime_from_mail(ev, key_to_date)
-                                all_events.extend(events)
-                                # 按账号归档事件
-                                acc_events.setdefault(acc.get("email", "?"), []).extend(events)
-                                _log(f"  [{folder_name}] 提取事件: {len(events)} 个")
-                            else:
-                                _log(f"  [{folder_name}] AI 返回非列表: {type(events)}")
-                        except json.JSONDecodeError as je:
-                            _log(f"  [{folder_name}] JSON 解析失败: {je} | raw前200字: {raw[:200]}")
-                    else:
-                        _log(f"  [{folder_name}] AI 错误响应: {resp.text[:300]}")
-                except Exception as e:
-                    _log(f"  [{folder_name}] AI 调用异常: {type(e).__name__}: {e}")
+            system_p = get_prompt("extract", "system", current_year=today.year)
+            user_p   = get_prompt(
+                "extract", "user_template",
+                today=today.isoformat(),
+                count=len(emails_for_ai),
+                emails_json=json.dumps(emails_for_ai, ensure_ascii=False),
+            )
+            base_url = _normalize_base_url(req.base_url)
+            payload  = _build_chat_payload(
+                model=req.model,
+                messages=[
+                    {"role": "system", "content": system_p},
+                    {"role": "user",   "content": user_p},
+                ],
+                temperature=0.1,
+                max_tokens=2000,
+            )
+            try:
+                _log(f"  [{folder_name}] 调用 AI ({req.model})…")
+                async with httpx.AsyncClient(timeout=120) as client:
+                    resp = await client.post(
+                        f"{base_url}/chat/completions",
+                        headers={"Authorization": f"Bearer {req.api_key}",
+                                 "Content-Type": "application/json"},
+                        json=payload,
+                    )
+                _log(f"  [{folder_name}] AI 响应状态: {resp.status_code}")
+                if resp.status_code == 200:
+                    raw = resp.json()["choices"][0]["message"]["content"].strip()
+                    if raw.startswith("```"):
+                        raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+                    try:
+                        events = json.loads(raw)
+                        if isinstance(events, list):
+                            key_to_date = {it["key"]: it["date"] for it in emails_for_ai if it.get("date")}
+                            for ev in events:
+                                ev["account"] = acc.get("email", "")
+                                ev["folder"]  = folder.get("name", "")
+                                _patch_event_datetime_from_mail(ev, key_to_date)
+                            all_events.extend(events)
+                            acc_events.setdefault(acc.get("email", "?"), []).extend(events)
+                            _log(f"  [{folder_name}] 提取事件: {len(events)} 个")
+                        else:
+                            _log(f"  [{folder_name}] AI 返回非列表: {type(events)}")
+                    except json.JSONDecodeError as je:
+                        _log(f"  [{folder_name}] JSON 解析失败: {je} | raw前200字: {raw[:200]}")
+                else:
+                    _log(f"  [{folder_name}] AI 错误响应: {resp.text[:300]}")
+            except Exception as e:
+                _log(f"  [{folder_name}] AI 调用异常: {type(e).__name__}: {e}")
+            try:
+                prog = _load_json(_DASHBOARD_JSON, {})
+                prog["is_extracting"] = True
+                prog["extract_log"] = list(extract_log)
+                prog["extract_progress"] = {"current": current_step, "total": total_folders, "message": f"{acc_email} / {folder_name}"}
+                _save_json(_DASHBOARD_JSON, prog)
+                print(f"[提取] 进度已写入: {current_step}/{total_folders} — {acc_email} / {folder_name}")
+            except Exception as e:
+                print(f"[提取] 写入进度失败: {e}")
 
         # 去重（相同 title + datetime 认为是同一事件）
         seen = set()
@@ -1059,7 +1178,8 @@ async def _do_extract(req: ExtractRequest) -> None:
                 account_briefs[acc_email_key] = await _gen_brief(acc_email_key, a_metas, a_events)
 
         _log(f"提取完成: 事件 {len(unique_events)} 个，邮件元数据 {len(all_meta)} 封")
-        now_iso = _dt.datetime.utcnow().isoformat() + "Z"
+        print(f"[提取] 任务完成: 事件 {len(unique_events)} 个")
+        now_iso = _dt.datetime.now(_dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
         # 按账号统计
         account_stats: dict[str, dict] = {}
@@ -1074,20 +1194,24 @@ async def _do_extract(req: ExtractRequest) -> None:
             "topics":          topics,
             "people":          people,
             "brief":           brief_text,
-            "account_briefs":  account_briefs,   # 各账号独立简报
-            "account_stats":   account_stats,    # 各账号统计
-            "acc_events":      {k: v for k, v in acc_events.items()},  # 各账号事件
+            "account_briefs":  account_briefs,
+            "account_stats":   account_stats,
+            "acc_events":      {k: v for k, v in acc_events.items()},
             "stats":           stats,
             "extracted_at":    now_iso,
             "is_extracting":   False,
             "extract_log":     extract_log,
+            "extract_progress": None,  # 完成后清空，前端隐藏进度条
         }
         _save_json(_DASHBOARD_JSON, result)
+        # 确认写入成功，避免前端因缓存等原因一直拿到旧状态
+        verify = _load_json(_DASHBOARD_JSON, {})
+        print(f"[提取] dashboard 已写入 is_extracting={verify.get('is_extracting')} events={len(verify.get('events') or [])}")
 
         # ── 将本次简报追加到历史 ──────────────────────────────────────────────
         if brief_text or account_briefs:
             briefs = _load_json(_BRIEFS_JSON, [])
-            today_key = _dt.datetime.utcnow().strftime("%Y-%m-%d")
+            today_key = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d")
             briefs = [b for b in briefs if b.get("date") != today_key]
             briefs.insert(0, {
                 "id":              today_key,
@@ -1103,9 +1227,11 @@ async def _do_extract(req: ExtractRequest) -> None:
         import traceback
         err_detail = traceback.format_exc()
         log.error(f"_do_extract 顶层异常: {err_detail}")
+        print(f"[提取] 任务异常: {e}\n{err_detail}")
         existing = _load_json(_DASHBOARD_JSON, {})
-        existing["is_extracting"]  = False
-        existing["extract_error"]  = str(e)
+        existing["is_extracting"]   = False
+        existing["extract_error"]   = str(e)
+        existing["extract_progress"] = None
         existing["extract_log"]    = extract_log + [f"FATAL: {err_detail}"]
         _save_json(_DASHBOARD_JSON, existing)
 
@@ -1113,6 +1239,12 @@ async def _do_extract(req: ExtractRequest) -> None:
 @app.post("/api/dashboard/extract")
 async def trigger_extract(req: ExtractRequest):
     """触发 Dashboard 事件提取（后台异步执行，立即返回）。"""
+    # 立即写入「提取中」，方便前端第一次 loadData 就显示进度区域
+    existing = _load_json(_DASHBOARD_JSON, {})
+    existing["is_extracting"] = True
+    existing.pop("extract_error", None)
+    _save_json(_DASHBOARD_JSON, existing)
+    print("[提取] 已标记 is_extracting=True，前端可轮询进度")
     asyncio.create_task(_do_extract(req))
     return {"success": True, "message": "提取任务已启动，请稍后刷新"}
 
@@ -1171,7 +1303,7 @@ def get_todos():
 def create_todo(item: TodoItem):
     import datetime as _dt
     todos = _load_json(_TODOS_JSON, [])
-    now = _dt.datetime.utcnow().isoformat() + "Z"
+    now = _dt.datetime.now(_dt.timezone.utc).isoformat().replace("+00:00", "Z")
     d = item.model_dump()
     d["created_at"] = d["updated_at"] = now
     todos.append(d)
@@ -1183,7 +1315,7 @@ def create_todo(item: TodoItem):
 def update_todo(todo_id: str, item: TodoItem):
     import datetime as _dt
     todos = _load_json(_TODOS_JSON, [])
-    now = _dt.datetime.utcnow().isoformat() + "Z"
+    now = _dt.datetime.now(_dt.timezone.utc).isoformat().replace("+00:00", "Z")
     for i, t in enumerate(todos):
         if t["id"] == todo_id:
             d = item.model_dump()
@@ -1220,7 +1352,7 @@ if __name__ == "__main__":
     port = 8000
     url = f"http://127.0.0.1:{port}"
 
-    # 无 dist 时先构建，构建完成后挂载 SPA（模块加载时 dist 可能还不存在）
+    # 无 dist 时先构建
     if not DIST_DIR.exists():
         print("前端未构建，正在执行 npm run build …")
         import subprocess
@@ -1235,7 +1367,8 @@ if __name__ == "__main__":
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             print(f"构建失败: {e}\n请手动执行: cd frontend && npm run build")
             sys.exit(1)
-        _mount_spa(DIST_DIR)
+    # 必须在所有 API 路由注册后再挂载 SPA，否则 /api/* 会被通配路由吃掉并返回 index.html
+    _mount_spa(DIST_DIR)
 
     def run_server():
         uvicorn.run(app, host="127.0.0.1", port=port, reload=False)

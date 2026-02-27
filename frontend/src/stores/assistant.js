@@ -467,13 +467,23 @@ export const useAssistantStore = defineStore('assistant', () => {
     return text  // 由组件接收后填入输入框
   }
 
-  // ── 窗口位置（拖拽持久化）─────────────────────────────────────────────────
-  const position = ref(
-    JSON.parse(localStorage.getItem('assistant-pos') || 'null') ?? { x: null, y: null }
-  )
-  function savePosition(x, y) {
+  // ── 窗口位置（拖拽持久化，存后端替代 localStorage）──────────────────────────
+  const position = ref({ x: null, y: null })
+  /** 从后端配置写入位置（由 App 初始化时调用） */
+  function loadPosition(pos) {
+    if (pos && typeof pos === 'object') {
+      const x = pos.x != null ? Number(pos.x) : null
+      const y = pos.y != null ? Number(pos.y) : null
+      position.value = { x, y }
+    }
+  }
+  async function savePosition(x, y) {
     position.value = { x, y }
-    localStorage.setItem('assistant-pos', JSON.stringify({ x, y }))
+    await fetch('/api/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assistantPos: { x, y } }),
+    })
   }
 
   return {

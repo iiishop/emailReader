@@ -289,6 +289,8 @@
             </section>
           </div>
 
+          <!-- 保存失败提示 -->
+          <div v-if="saveError" class="save-error">{{ saveError }}</div>
           <!-- 底部按钮 -->
           <div class="modal-footer">
             <button class="btn btn-ghost" @click="cancel">取消</button>
@@ -389,6 +391,7 @@ watch(() => props.visible, (v) => {
     customRefresh.value  = !REFRESH_PRESET_VALUES.includes(settingsStore.refreshInterval)
     testResult.value     = null
     showKey.value        = false
+    saveError.value      = null
   }
 })
 
@@ -446,7 +449,9 @@ async function testConnection() {
   }
 }
 
-function saveSettings() {
+const saveError = ref(null)
+async function saveSettings() {
+  saveError.value = null
   settingsStore.apiBaseUrl    = form.apiBaseUrl
   settingsStore.apiKey        = form.apiKey
   settingsStore.selectedModel = form.selectedModel
@@ -454,8 +459,12 @@ function saveSettings() {
   settingsStore.aiDays             = Number(form.aiDays) || 7
   settingsStore.relevanceThreshold = Number(form.relevanceThreshold) ?? 60
   settingsStore.refreshInterval    = Number(form.refreshInterval) ?? 5
-  settingsStore.save()
-  emit('update:visible', false)
+  try {
+    await settingsStore.save()
+    emit('update:visible', false)
+  } catch (e) {
+    saveError.value = e.message || '配置保存失败，请查看终端或重试'
+  }
 }
 
 function cancel() {
@@ -763,6 +772,12 @@ function cancel() {
 }
 
 /* ── 底部 ── */
+.save-error {
+  padding: 8px 20px;
+  color: var(--color-error, #c00);
+  font-size: 13px;
+  background: rgba(200, 0, 0, 0.08);
+}
 .modal-footer {
   display: flex;
   justify-content: flex-end;

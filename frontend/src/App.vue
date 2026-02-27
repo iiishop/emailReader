@@ -136,23 +136,34 @@ const dashDataStore  = useDashboardDataStore()
 const aiAssistantRef = ref(null)
 const settingsOpen   = ref(false)
 
-// ── 主题 ────────────────────────────────────────────────────────────────────
-const THEME_KEY = 'emailreader-theme'
+// ── 主题（存后端，替代 localStorage）──────────────────────────────────────────
 const isDark = ref(false)
 
 function applyTheme(dark) {
   isDark.value = dark
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
-  localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light')
+  fetch('/api/config', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ theme: dark ? 'dark' : 'light' }),
+  }).catch(() => {})
 }
 function toggleTheme() { applyTheme(!isDark.value) }
 
 onMounted(async () => {
-  applyTheme(localStorage.getItem(THEME_KEY) === 'dark')
+  // 从后端加载配置（PyWebView 无 localStorage，全部走后端）
+  try {
+    const res = await fetch('/api/config')
+    const config = await res.json()
+    applyTheme(config.theme === 'dark')
+    settingsStore.loadFrom(config.settings)
+    assistantStore.loadPosition(config.assistantPos)
+  } catch {
+    applyTheme(false)
+  }
   mailStore.forceResetLoading()
   await accountsStore.fetchAccounts()
   refreshStore.init()
-  // 加载上次提取的 Dashboard 数据（不触发新的 AI 提取）
   dashDataStore.loadData()
   dashDataStore.loadTodos()
 })

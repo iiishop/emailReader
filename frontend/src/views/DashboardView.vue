@@ -41,7 +41,12 @@
             </div>
             <div v-if="dash.currentBrief" class="brief-today-preview">{{ currentBriefPreview }}</div>
             <div v-else-if="dash.isExtracting" class="brief-today-loading">
-              <span class="spinner-xs"></span> AI 正在分析邮件…
+              <span class="spinner-xs"></span>
+              <template v-if="dash.extractProgress && dash.extractProgress.total > 0">
+                {{ dash.extractProgress.current }} / {{ dash.extractProgress.total }}
+                <span class="brief-progress-msg">{{ dash.extractProgress.message }}</span>
+              </template>
+              <template v-else>AI 正在分析邮件…（准备中）</template>
             </div>
             <div v-else class="brief-today-empty">暂无简报，点击「提取」生成</div>
           </div>
@@ -59,6 +64,16 @@
             <div class="brief-hist-date">{{ formatBriefDate(b.date) }}</div>
             <div class="brief-hist-preview">{{ b.preview }}</div>
           </div>
+        </div>
+
+        <!-- 提取进度条：有 total 时显示具体进度，否则显示不定条 -->
+        <div v-if="dash.isExtracting" class="brief-progress-bar-wrap">
+          <div
+            v-if="dash.extractProgress && dash.extractProgress.total > 0"
+            class="brief-progress-bar"
+            :style="{ width: (dash.extractProgress.current / dash.extractProgress.total) * 100 + '%' }"
+          ></div>
+          <div v-else class="brief-progress-bar brief-progress-bar-indeterminate"></div>
         </div>
 
         <!-- 操作区 -->
@@ -1000,6 +1015,29 @@ onActivated(init)
   align-items: center;
   gap: 5px;
   margin-top: 2px;
+}
+.brief-progress-msg { opacity: .85; }
+.brief-progress-bar-wrap {
+  height: 4px;
+  background: var(--border-light);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
+.brief-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width .25s ease;
+}
+.brief-progress-bar-indeterminate {
+  width: 35% !important;
+  animation: brief-progress-shuttle 1.2s ease-in-out infinite;
+}
+@keyframes brief-progress-shuttle {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(185%); }
 }
 .brief-today-empty {
   font-size: 11px;
