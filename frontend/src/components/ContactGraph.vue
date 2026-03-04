@@ -242,7 +242,6 @@ function onNodeClick({ node }) {
 .contact-node:hover, .contact-node.selected {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-dim), var(--shadow);
-  transform: scale(1.04);
 }
 .contact-node.recent {
   border-color: rgba(34,197,94,.4);

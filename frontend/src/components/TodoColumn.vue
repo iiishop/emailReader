@@ -232,9 +232,8 @@ function shortFrom(from) {
 .todo-card:hover {
   box-shadow: 0 3px 12px rgba(0,0,0,.09);
   border-color: rgba(99,102,241,.25);
-  transform: translateY(-1px);
 }
-.todo-card:active { cursor: grabbing; transform: translateY(0); }
+.todo-card:active { cursor: grabbing; }
 
 /* 优先级左侧条 */
 .priority-bar {

@@ -4,106 +4,137 @@
   padding: 0;
 }
 
-/* ────────────── 浅色主题（默认） ────────────── */
+/* ────────────── 浅色主题（暖纸 + 青绿主色，低 AI 味） ────────────── */
 :root {
-  /* 基础背景 */
-  --bg:           #f4f5f7;
-  --bg-card:      #ffffff;
-  --bg-hover:     #eceef2;
-  --bg-sidebar:   #1e2130;
+  /* 基础背景：暖灰/纸感，非冷灰 */
+  --bg:           #f2f0eb;
+  --bg-card:      #fcfbf9;
+  --bg-hover:     #eae8e3;
+  --bg-sidebar:   #1a1e26;
 
-  /* 边框 */
-  --border:       #e2e5ec;
-  --border-light: #edf0f5;
+  /* 边框：偏暖 */
+  --border:       #e0ddd6;
+  --border-light: #eae8e3;
 
-  /* 主色调 */
-  --accent:       #5b5ef4;
-  --accent-light: #818cf8;
-  --accent-dim:   rgba(91,94,244,.1);
+  /* 主色：青绿（替代常见紫），更克制 */
+  --accent:       #0d9488;
+  --accent-light: #14b8a6;
+  --accent-dim:   rgba(13,148,136,.1);
 
   /* 文字 */
-  --text-primary:   #111827;
-  --text-secondary: #4b5563;
-  --text-muted:     #9ca3af;
-  --text-sidebar:   #c8cce0;
+  --text-primary:   #1c1917;
+  --text-secondary: #57534e;
+  --text-muted:     #78716c;
+  --text-sidebar:   #c4c2be;
   --text-sidebar-muted: #6b7280;
 
   /* 语义色 */
-  --success: #16a34a;
-  --warning: #d97706;
-  --danger:  #e11d48;
+  --success: #059669;
+  --warning: #b45309;
+  --danger:  #dc2626;
 
   /* 邮件品牌色 */
   --gmail:   #ea4335;
   --outlook: #0078d4;
   --mail163: #cc0000;
   --qq:      #12b7f5;
-  --imap:    #6366f1;
+  --imap:    #0d9488;
   --unread-bright-bg: #ef4444;
 
-  /* 阴影 */
-  --shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
-  --shadow:    0 4px 12px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.05);
-  --shadow-lg: 0 12px 32px rgba(0,0,0,.12), 0 4px 8px rgba(0,0,0,.06);
+  /* 阴影：略暖、柔和 */
+  --shadow-sm: 0 1px 2px rgba(28,25,23,.04), 0 1px 2px rgba(28,25,23,.03);
+  --shadow:    0 4px 14px rgba(28,25,23,.06), 0 2px 6px rgba(28,25,23,.04);
+  --shadow-lg: 0 14px 36px rgba(28,25,23,.1), 0 6px 12px rgba(28,25,23,.05);
 
   /* 布局 */
-  --sidebar-w: 52px;
-  --radius-sm: 6px;
-  --radius:    10px;
-  --radius-lg: 14px;
+  --sidebar-w: 56px;
+  --radius-sm: 8px;
+  --radius:    12px;
+  --radius-lg: 16px;
+
+  /* 动效：软弹、嫩滑（低 AI 味） */
+  --ease-soft:     cubic-bezier(0.33, 1, 0.68, 1);
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-in-out:  cubic-bezier(0.65, 0, 0.35, 1);
+  --duration-instant: 0.12s;
+  --duration-fast:    0.22s;
+  --duration-normal:  0.35s;
+  --duration-slow:    0.5s;
 }
 
-/* ────────────── 深色主题 ────────────── */
+/* ────────────── 深色主题（暖黑 + 青绿） ────────────── */
 [data-theme="dark"] {
-  --bg:           #0d0f18;
-  --bg-card:      #161926;
-  --bg-hover:     #1e2235;
-  --bg-sidebar:   #0a0c14;
+  --bg:           #0f1318;
+  --bg-card:      #161b22;
+  --bg-hover:     #1c2128;
+  --bg-sidebar:   #0c0f14;
 
-  --border:       #252840;
-  --border-light: #1e2235;
+  --border:       #21262d;
+  --border-light: #1c2128;
 
-  --accent:       #6366f1;
-  --accent-light: #818cf8;
-  --accent-dim:   rgba(99,102,241,.12);
+  --accent:       #2dd4bf;
+  --accent-light: #5eead4;
+  --accent-dim:   rgba(45,212,191,.12);
 
-  --text-primary:   #e8ecf4;
-  --text-secondary: #8892a8;
-  --text-muted:     #4e5568;
-  --text-sidebar:   #9ba3bf;
-  --text-sidebar-muted: #4e5568;
+  --text-primary:   #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted:     #484f58;
+  --text-sidebar:   #9ba3b0;
+  --text-sidebar-muted: #6e7681;
 
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --danger:  #f43f5e;
+  --success: #3fb950;
+  --warning: #d29922;
+  --danger:  #f85149;
 
   --gmail:   #ea4335;
   --outlook: #0078d4;
   --mail163: #cc0000;
   --qq:      #12b7f5;
-  --imap:    #6366f1;
+  --imap:    #2dd4bf;
   --unread-bright-bg: #ef4444;
 
-  --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
-  --shadow:    0 4px 16px rgba(0,0,0,.4);
-  --shadow-lg: 0 16px 48px rgba(0,0,0,.6);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.25);
+  --shadow:    0 4px 18px rgba(0,0,0,.35);
+  --shadow-lg: 0 18px 50px rgba(0,0,0,.5);
 }
 
 html, body {
   height: 100%;
   background: var(--bg);
   color: var(--text-primary);
-  font-family: 'Geist', 'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei', system-ui, sans-serif;
+  font-family: 'DM Sans', 'Geist', 'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei', system-ui, sans-serif;
   font-size: 14px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* 主区背景：极淡渐变 + 慢速呼吸动效（低 AI 味氛围） */
 #app {
   height: 100vh;
   display: flex;
   flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+#app::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(ellipse 120% 80% at 85% 20%, rgba(13,148,136,.04) 0%, transparent 50%),
+              radial-gradient(ellipse 80% 60% at 15% 80%, rgba(13,148,136,.02) 0%, transparent 45%);
+  animation: bgBreath 12s var(--ease-in-out) infinite;
+}
+@keyframes bgBreath {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+[data-theme="dark"] #app::before {
+  background: radial-gradient(ellipse 120% 80% at 85% 20%, rgba(45,212,191,.06) 0%, transparent 50%),
+              radial-gradient(ellipse 80% 60% at 15% 80%, rgba(45,212,191,.03) 0%, transparent 45%);
 }
 
 ::-webkit-scrollbar { width: 5px; height: 5px; }

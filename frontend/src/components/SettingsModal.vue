@@ -286,6 +286,13 @@
                   <template v-else>每 {{ form.refreshInterval }} 分钟自动刷新当前文件夹</template>
                 </div>
               </div>
+              <div class="field toggle-row">
+                <label class="toggle-label">
+                  <input type="checkbox" v-model="form.notifyNewMail" />
+                  <span>新邮件时弹出系统通知</span>
+                </label>
+                <div class="hint-text">即使窗口未置顶也会在系统托盘/操作中心显示提醒（Windows）</div>
+              </div>
             </section>
           </div>
 
@@ -323,6 +330,7 @@ const form = reactive({
   aiDays:             7,
   relevanceThreshold: 60,
   refreshInterval:    5,
+  notifyNewMail:      true,
 })
 
 // ── 天数选择 ──────────────────────────────────────────────────────────────
@@ -387,6 +395,7 @@ watch(() => props.visible, (v) => {
     form.aiDays             = settingsStore.aiDays
     form.relevanceThreshold = settingsStore.relevanceThreshold ?? 60
     form.refreshInterval    = settingsStore.refreshInterval
+    form.notifyNewMail      = settingsStore.notifyNewMail !== false
     customDays.value     = !PRESET_VALUES.includes(settingsStore.aiDays)
     customRefresh.value  = !REFRESH_PRESET_VALUES.includes(settingsStore.refreshInterval)
     testResult.value     = null
@@ -459,6 +468,7 @@ async function saveSettings() {
   settingsStore.aiDays             = Number(form.aiDays) || 7
   settingsStore.relevanceThreshold = Number(form.relevanceThreshold) ?? 60
   settingsStore.refreshInterval    = Number(form.refreshInterval) ?? 5
+  settingsStore.notifyNewMail      = Boolean(form.notifyNewMail)
   try {
     await settingsStore.save()
     emit('update:visible', false)
@@ -595,6 +605,20 @@ function cancel() {
   gap: 6px;
 }
 .input-row .field-input { flex: 1; }
+
+.toggle-row { margin-top: 12px; }
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.toggle-label input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+.toggle-row .hint-text { margin-top: 4px; margin-left: 24px; }
+
 .icon-btn-sm {
   width: 36px;
   height: 36px;

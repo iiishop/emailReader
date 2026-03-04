@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { useSettingsStore } from './settings.js'
 
 export const useMailStore = defineStore('mail', () => {
   // ─── 文件夹 ────────────────────────────────────────────────────────────────
@@ -226,6 +227,28 @@ export const useMailStore = defineStore('mail', () => {
         newEmailKeys.value = new Set()
         _newKeysTimer = null
       }, 2500)
+
+      // 新邮件系统通知（含窗口未置顶时）；仅 1 封时传首封 key 供后端识别验证码并显示「复制验证码」按钮
+      const settings = useSettingsStore()
+      if (settings.notifyNewMail) {
+        const folderName = targetFolder.name || targetFolder.folder_id || ''
+        const payload = {
+          count: brandNew.length,
+          subjects: brandNew.slice(0, 3).map(e => (e.subject || '').slice(0, 80)),
+          from_str: brandNew[0]?.from ? String(brandNew[0].from).slice(0, 40) : '',
+          folder_name: folderName,
+        }
+        if (brandNew.length === 1 && brandNew[0]?.key != null) {
+          payload.first_email_key = String(brandNew[0].key)
+          payload.account_id = targetFolder.account_id
+          payload.folder_id = targetFolder.folder_id
+        }
+        fetch('/api/notify-new-mail', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }).catch(() => {})
+      }
     }
 
     // 更新未读数（即使没有新邮件，已读状态可能变化）

@@ -6,15 +6,17 @@ FastAPI + uvicorn + asyncio 线程池，为 Vue 前端提供 REST API
 import asyncio
 import functools
 import json
+import os
 import re
 import sys
 import httpx
 from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 from pathlib import Path
+import urllib.parse
 
 from thunderbird import read_thunderbird_accounts
 from mail_reader import MboxIndex, list_folders, read_emails, read_email_body, thread_pool
@@ -392,6 +394,145 @@ async def get_email_body(account_id: str, folder_id: str, key: str):
     if not data["success"]:
         raise HTTPException(404, detail=data["error"])
     return data
+
+
+# ─── 验证码检测（用于新邮件通知中「复制验证码」按钮）────────────────────────────
+
+def _extract_verification_code(text: str) -> str | None:
+    """从邮件正文/主题中提取验证码（4～8 位数字）。若无法判定为验证码邮件则返回 None。"""
+    if not (text and text.strip()):
+        return None
+    # 去掉 HTML 标签，便于正则匹配
+    plain = re.sub(r"<[^>]+>", " ", text)
+    plain = re.sub(r"\s+", " ", plain).strip()
+    # 常见验证码关键词 + 数字
+    patterns = [
+        r"验证码[：:\s]*(\d{4,8})",
+        r"您的验证码[：:\s]*(\d{4,8})",
+        r"动态码[：:\s]*(\d{4,8})",
+        r"校验码[：:\s]*(\d{4,8})",
+        r"verification code[：:\s]*(\d{4,8})",
+        r"(?i)code[：:\s]*(\d{4,8})",
+        r"验证码是\s*(\d{4,8})",
+        r"为[：:\s]*(\d{4,8})\s*[，,。.；;]",
+    ]
+    for pat in patterns:
+        m = re.search(pat, plain)
+        if m:
+            return m.group(1)
+    # 若文中含「验证码」且存在 6 位数字，取第一个 6 位
+    if "验证码" in plain or "verification" in plain.lower():
+        m = re.search(r"\b(\d{6})\b", plain)
+        if m:
+            return m.group(1)
+    return None
+
+
+# ─── 新邮件系统通知（Windows Toast，窗口未置顶时也会弹出）────────────────────
+
+NOTIFY_BASE_URL = os.environ.get("EMAILREADER_BASE_URL", "http://127.0.0.1:8000")
+
+
+def _show_new_mail_notification(
+    count: int,
+    subjects: list,
+    from_str: str = "",
+    folder_name: str = "",
+    verification_code: str | None = None,
+) -> None:
+    """在系统托盘/操作中心显示新邮件提醒。若 detection 到验证码则带「复制验证码」按钮。仅 Windows 使用 winotify。"""
+    if sys.platform != "win32":
+        return
+    try:
+        from winotify import Notification
+        title = "新邮件"
+        if count == 1:
+            msg = (subjects[0][:60] + "…") if len(subjects[0]) > 60 else (subjects[0] or "（无主题）")
+            if from_str:
+                msg = from_str[:30] + "：" + msg
+        else:
+            msg = f"共 {count} 封新邮件"
+            if folder_name:
+                msg += f"（{folder_name}）"
+        toast = Notification(
+            app_id="EmailReader",
+            title=title,
+            msg=msg,
+            duration="short",
+        )
+        if verification_code:
+            copy_url = f"{NOTIFY_BASE_URL}/api/copy-code?code={urllib.parse.quote(verification_code)}"
+            toast.add_actions("复制验证码", copy_url)
+        toast.show()
+    except Exception as e:
+        print(f"[Notify] 新邮件通知失败: {e}")
+
+
+@app.get("/api/copy-code", response_class=HTMLResponse)
+def copy_code_page(code: str = Query("", description="要复制到剪贴板的验证码")):
+    """供 Toast「复制验证码」按钮打开：在浏览器中打开此页并执行复制，显示「已复制」。"""
+    escaped = code.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>复制验证码</title></head>
+<body style="font-family: system-ui; padding: 24px; text-align: center;">
+  <p id="msg">正在复制…</p>
+  <p style="color:#666; font-size:14px;" id="code">{escaped}</p>
+  <script>
+    var code = {json.dumps(code)};
+    if (navigator.clipboard && navigator.clipboard.writeText) {{
+      navigator.clipboard.writeText(code).then(function() {{
+        document.getElementById("msg").textContent = "验证码已复制到剪贴板";
+      }}, function() {{ document.getElementById("msg").textContent = "复制失败，请手动复制上方数字"; }});
+    }} else {{
+      document.getElementById("msg").textContent = "请手动复制上方验证码";
+    }}
+  </script>
+</body></html>"""
+    return HTMLResponse(content=html)
+
+
+class NotifyNewMailRequest(BaseModel):
+    count: int
+    subjects: list[str] = []
+    from_str: str = ""
+    folder_name: str = ""
+    first_email_key: str | None = None
+    account_id: str | None = None
+    folder_id: str | None = None
+
+
+@app.post("/api/notify-new-mail")
+async def notify_new_mail(body: NotifyNewMailRequest):
+    """由前端在检测到新邮件后调用，弹出 Windows 系统通知。若仅 1 封且提供 first_email 信息则尝试识别验证码并显示「复制验证码」按钮。"""
+    if body.count <= 0:
+        return {"success": True}
+    verification_code = None
+    if (
+        body.count == 1
+        and body.first_email_key
+        and body.account_id
+        and body.folder_id
+    ):
+        try:
+            account = _get_account(body.account_id)
+            mail_dir = _require_mail_dir(account)
+            mbox_path = str(Path(mail_dir) / body.folder_id.replace("/", "\\"))
+            data = await _run(read_email_body, mbox_path, body.first_email_key)
+            if data.get("success"):
+                raw = (data.get("text_plain") or "") + " " + (data.get("text_html") or "")
+                if data.get("subject"):
+                    raw = (data.get("subject") or "") + " " + raw
+                verification_code = _extract_verification_code(raw)
+        except Exception:
+            pass
+    _show_new_mail_notification(
+        body.count,
+        body.subjects or [],
+        body.from_str or "",
+        body.folder_name or "",
+        verification_code=verification_code,
+    )
+    return {"success": True}
 
 
 # ─── 邮件内容转换（HTML → Markdown）────────────────────────────────────────

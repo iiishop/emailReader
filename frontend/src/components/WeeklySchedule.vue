@@ -215,7 +215,7 @@ function onDrop(e, day) {
   transition: background .12s;
 }
 .day-header.today {
-  background: rgba(99,102,241,.05);
+  background: rgba(13,148,136,.05);
 }
 .day-name {
   font-size: 9px;
@@ -236,7 +236,7 @@ function onDrop(e, day) {
 .day-num.today {
   background: var(--accent);
   color: #fff;
-  box-shadow: 0 2px 8px rgba(99,102,241,.4);
+  box-shadow: 0 2px 8px rgba(13,148,136,.4);
 }
 
 /* 主体滚动区 */
@@ -273,7 +273,7 @@ function onDrop(e, day) {
   position: relative;
   border-left: 1px solid var(--border);
 }
-.day-col.today { background: rgba(99,102,241,.018); }
+.day-col.today { background: rgba(13,148,136,.018); }
 
 .hour-block {
   position: relative;
@@ -321,7 +321,7 @@ function onDrop(e, day) {
 }
 .event-block:hover { filter: brightness(1.08); }
 .event-block.all-day { border-style: dashed; opacity: .92; }
-.event-block.meeting   { background: rgba(99,102,241,.18);  border-color: #6366f1; color: #6366f1; }
+.event-block.meeting   { background: rgba(13,148,136,.18);  border-color: #0d9488; color: #0d9488; }
 .event-block.deadline  { background: rgba(244,63,94,.15);   border-color: #f43f5e; color: #f43f5e; }
 .event-block.task      { background: rgba(245,158,11,.15);  border-color: #f59e0b; color: #d97706; }
 .event-block.reminder  { background: rgba(16,185,129,.13);  border-color: #10b981; color: #059669; }

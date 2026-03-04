@@ -314,7 +314,6 @@ function onNodeClick({ node }) {
 .topic-node:hover {
   border-color: var(--tc);
   box-shadow: 0 0 0 5px color-mix(in srgb, var(--tc) 15%, transparent);
-  transform: scale(1.08);
 }
 .tn-ring {
   position: absolute;
@@ -358,7 +357,6 @@ function onNodeClick({ node }) {
 .event-node:hover {
   border-color: var(--ec);
   box-shadow: var(--shadow);
-  transform: translateY(-1px);
 }
 .en-dot {
   width: 6px; height: 6px;

@@ -91,7 +91,6 @@ const providerLabel = computed(() => {
 .account-card:hover {
   background: var(--bg-hover);
   border-color: var(--accent);
-  transform: translateY(-1px);
 }
 
 .account-card.is-default {

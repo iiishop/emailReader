@@ -183,9 +183,11 @@ watch(() => refreshStore.lastRefreshed, (val, old) => {
   flex-direction: row;
   height: 100vh;
   overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
-/* ══ 左侧导航栏 ══ */
+/* ══ 左侧导航栏：略宽、带层次 ══ */
 .sidebar {
   width: var(--sidebar-w);
   flex-shrink: 0;
@@ -193,24 +195,32 @@ watch(() => refreshStore.lastRefreshed, (val, old) => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 10px 0 12px;
+  padding: 12px 0 14px;
   gap: 0;
-  border-right: 1px solid rgba(255,255,255,.04);
+  border-right: 1px solid rgba(255,255,255,.06);
   user-select: none;
   z-index: 100;
+  box-shadow: 4px 0 24px rgba(0,0,0,.08);
+}
+[data-theme="dark"] .sidebar {
+  box-shadow: 4px 0 20px rgba(0,0,0,.25);
 }
 
 /* 品牌 Logo */
 .sidebar-brand {
-  width: 36px; height: 36px;
+  width: 40px; height: 40px;
   display: flex; align-items: center; justify-content: center;
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--accent);
   color: #fff;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
   flex-shrink: 0;
-  box-shadow: 0 4px 12px rgba(91,94,244,.4);
+  box-shadow: 0 4px 14px rgba(13,148,136,.35);
+  transition: transform var(--duration-fast) var(--ease-spring), box-shadow var(--duration-fast) var(--ease-soft);
 }
+.sidebar-brand:hover { box-shadow: 0 6px 18px rgba(13,148,136,.4); }
+[data-theme="dark"] .sidebar-brand { box-shadow: 0 4px 14px rgba(45,212,191,.25); }
+[data-theme="dark"] .sidebar-brand:hover { box-shadow: 0 6px 18px rgba(45,212,191,.35); }
 
 /* 主导航 */
 .sidebar-nav {
@@ -233,7 +243,7 @@ watch(() => refreshStore.lastRefreshed, (val, old) => {
   background: transparent;
   color: var(--text-sidebar-muted);
   cursor: pointer;
-  transition: background .15s, color .15s;
+  transition: background var(--duration-fast) var(--ease-soft), color var(--duration-fast) var(--ease-soft);
   position: relative;
 }
 .nav-item:hover {
@@ -241,7 +251,7 @@ watch(() => refreshStore.lastRefreshed, (val, old) => {
   color: var(--text-sidebar);
 }
 .nav-item.active {
-  background: rgba(91,94,244,.25);
+  background: rgba(13,148,136,.2);
   color: var(--accent-light);
 }
 .nav-item.active::before {
@@ -249,9 +259,15 @@ watch(() => refreshStore.lastRefreshed, (val, old) => {
   position: absolute;
   left: -8px; top: 50%;
   transform: translateY(-50%);
-  width: 3px; height: 20px;
+  width: 3px; height: 22px;
   background: var(--accent-light);
   border-radius: 0 3px 3px 0;
+  animation: navPillIn 0.35s var(--ease-spring) forwards;
+}
+[data-theme="dark"] .nav-item.active { background: rgba(45,212,191,.18); }
+@keyframes navPillIn {
+  from { opacity: 0; transform: translateY(-50%) scaleX(0); }
+  to { opacity: 1; transform: translateY(-50%) scaleX(1); }
 }
 .nav-label {
   font-size: 8.5px;
@@ -292,7 +308,7 @@ watch(() => refreshStore.lastRefreshed, (val, old) => {
   background: transparent;
   color: var(--text-sidebar-muted);
   cursor: pointer;
-  transition: background .15s, color .15s;
+  transition: background var(--duration-fast) var(--ease-soft), color var(--duration-fast) var(--ease-soft);
   flex-shrink: 0;
 }
 .sidebar-btn:hover {
@@ -301,9 +317,10 @@ watch(() => refreshStore.lastRefreshed, (val, old) => {
 }
 .sidebar-btn:disabled { opacity: .4; cursor: not-allowed; }
 .sidebar-btn.active {
-  background: rgba(91,94,244,.25);
+  background: rgba(13,148,136,.2);
   color: var(--accent-light);
 }
+[data-theme="dark"] .sidebar-btn.active { background: rgba(45,212,191,.18); }
 
 .ai-dot {
   position: absolute;
@@ -329,6 +346,7 @@ watch(() => refreshStore.lastRefreshed, (val, old) => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  transition: opacity var(--duration-normal) var(--ease-soft);
 }
 
 /* ── 动画 ── */

@@ -11,6 +11,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const aiDays = ref(7)
   const relevanceThreshold = ref(60)
   const refreshInterval = ref(5)
+  const notifyNewMail = ref(true)
 
   const isConfigured = computed(
     () => !!apiBaseUrl.value.trim() && !!apiKey.value.trim() && !!selectedModel.value.trim()
@@ -38,6 +39,7 @@ export const useSettingsStore = defineStore('settings', () => {
       aiDays:        aiDays.value,
       relevanceThreshold: relevanceThreshold.value,
       refreshInterval:    refreshInterval.value,
+      notifyNewMail:      notifyNewMail.value,
     }
     console.log('[Settings] 正在保存配置到 PUT /api/config ...')
     const res = await fetch('/api/config', {
@@ -53,5 +55,5 @@ export const useSettingsStore = defineStore('settings', () => {
     console.log('[Settings] 保存成功')
   }
 
-  return { apiBaseUrl, apiKey, selectedModel, systemPrompt, aiDays, relevanceThreshold, refreshInterval, isConfigured, save, loadFrom }
+  return { apiBaseUrl, apiKey, selectedModel, systemPrompt, aiDays, relevanceThreshold, refreshInterval, notifyNewMail, isConfigured, save, loadFrom }
 })
