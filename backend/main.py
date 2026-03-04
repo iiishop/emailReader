@@ -16,12 +16,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 from pathlib import Path
-import urllib.parse
 
 from thunderbird import read_thunderbird_accounts
 from mail_reader import MboxIndex, list_folders, read_emails, read_email_body, thread_pool
 from email_processor import html_to_markdown, text_to_ai_content
 from prompts import get_prompt
+from content_extract import extract_verification_code
+from services.account import resolve_mbox_path
+from services.notification import show_new_mail_toast, get_copy_code_html
 
 app = FastAPI(title="EmailReader API", version="0.3.0")
 
@@ -270,23 +272,7 @@ async def _run(fn, *args, **kwargs):
     return await loop.run_in_executor(thread_pool, call)
 
 
-def _get_account(account_id: str) -> dict:
-    """从账号列表中查找指定账号（已验证存在）。"""
-    result = read_thunderbird_accounts()
-    if not result["success"]:
-        raise HTTPException(502, detail=result["error"])
-    account = next((a for a in result["accounts"] if a["account_id"] == account_id), None)
-    if account is None:
-        raise HTTPException(404, detail=f"账号 {account_id} 不存在")
-    return account
-
-
-def _require_mail_dir(account: dict) -> str:
-    mail_dir = account.get("mail_dir")
-    if not mail_dir:
-        raise HTTPException(404, detail="该账号没有本地邮件目录")
-    return mail_dir
-
+# 账号/路径解析已迁至 services.account（get_account, require_mail_dir, resolve_mbox_path）
 
 # ─── 账号 ────────────────────────────────────────────────────────────────────
 
@@ -322,8 +308,7 @@ def get_accounts():
 @app.get("/api/accounts/{account_id}/folders")
 async def get_folders(account_id: str):
     """列出某账号下所有本地 mbox 文件夹。"""
-    account = _get_account(account_id)
-    mail_dir = _require_mail_dir(account)
+    _, mail_dir, _ = resolve_mbox_path(account_id, None)
     folders = await _run(list_folders, mail_dir)
     return {"success": True, "account_id": account_id, "mail_dir": mail_dir, "folders": folders}
 
@@ -337,8 +322,7 @@ async def prefetch_account(account_id: str, background_tasks: BackgroundTasks):
     前端在切换账号/打开文件夹列表时调用此接口。
     返回立即，建索引在后台线程池中进行。
     """
-    account = _get_account(account_id)
-    mail_dir = _require_mail_dir(account)
+    _, mail_dir, _ = resolve_mbox_path(account_id, None)
     folders = list_folders(mail_dir)
 
     async def _warm_all():
@@ -369,9 +353,7 @@ async def get_emails(
     首次调用时在线程池中建索引；后续命中缓存，几乎无耗时。
     force=True 时先清除缓存再重建，用于手动/自动刷新场景。
     """
-    account = _get_account(account_id)
-    mail_dir = _require_mail_dir(account)
-    mbox_path = str(Path(mail_dir) / folder_id.replace("/", "\\"))
+    _, _, mbox_path = resolve_mbox_path(account_id, folder_id)
 
     if force:
         await _run(MboxIndex.invalidate, mbox_path)
@@ -387,108 +369,19 @@ async def get_emails(
 @app.get("/api/accounts/{account_id}/folders/{folder_id:path}/emails/{key}")
 async def get_email_body(account_id: str, folder_id: str, key: str):
     """获取单封邮件完整内容（含 HTML/纯文本正文）。"""
-    account = _get_account(account_id)
-    mail_dir = _require_mail_dir(account)
-    mbox_path = str(Path(mail_dir) / folder_id.replace("/", "\\"))
+    _, _, mbox_path = resolve_mbox_path(account_id, folder_id)
     data = await _run(read_email_body, mbox_path, key)
     if not data["success"]:
         raise HTTPException(404, detail=data["error"])
     return data
 
 
-# ─── 验证码检测（用于新邮件通知中「复制验证码」按钮）────────────────────────────
-
-def _extract_verification_code(text: str) -> str | None:
-    """从邮件正文/主题中提取验证码（4～8 位数字）。若无法判定为验证码邮件则返回 None。"""
-    if not (text and text.strip()):
-        return None
-    # 去掉 HTML 标签，便于正则匹配
-    plain = re.sub(r"<[^>]+>", " ", text)
-    plain = re.sub(r"\s+", " ", plain).strip()
-    # 常见验证码关键词 + 数字
-    patterns = [
-        r"验证码[：:\s]*(\d{4,8})",
-        r"您的验证码[：:\s]*(\d{4,8})",
-        r"动态码[：:\s]*(\d{4,8})",
-        r"校验码[：:\s]*(\d{4,8})",
-        r"verification code[：:\s]*(\d{4,8})",
-        r"(?i)code[：:\s]*(\d{4,8})",
-        r"验证码是\s*(\d{4,8})",
-        r"为[：:\s]*(\d{4,8})\s*[，,。.；;]",
-    ]
-    for pat in patterns:
-        m = re.search(pat, plain)
-        if m:
-            return m.group(1)
-    # 若文中含「验证码」且存在 6 位数字，取第一个 6 位
-    if "验证码" in plain or "verification" in plain.lower():
-        m = re.search(r"\b(\d{6})\b", plain)
-        if m:
-            return m.group(1)
-    return None
-
-
-# ─── 新邮件系统通知（Windows Toast，窗口未置顶时也会弹出）────────────────────
-
-NOTIFY_BASE_URL = os.environ.get("EMAILREADER_BASE_URL", "http://127.0.0.1:8000")
-
-
-def _show_new_mail_notification(
-    count: int,
-    subjects: list,
-    from_str: str = "",
-    folder_name: str = "",
-    verification_code: str | None = None,
-) -> None:
-    """在系统托盘/操作中心显示新邮件提醒。若 detection 到验证码则带「复制验证码」按钮。仅 Windows 使用 winotify。"""
-    if sys.platform != "win32":
-        return
-    try:
-        from winotify import Notification
-        title = "新邮件"
-        if count == 1:
-            msg = (subjects[0][:60] + "…") if len(subjects[0]) > 60 else (subjects[0] or "（无主题）")
-            if from_str:
-                msg = from_str[:30] + "：" + msg
-        else:
-            msg = f"共 {count} 封新邮件"
-            if folder_name:
-                msg += f"（{folder_name}）"
-        toast = Notification(
-            app_id="EmailReader",
-            title=title,
-            msg=msg,
-            duration="short",
-        )
-        if verification_code:
-            copy_url = f"{NOTIFY_BASE_URL}/api/copy-code?code={urllib.parse.quote(verification_code)}"
-            toast.add_actions("复制验证码", copy_url)
-        toast.show()
-    except Exception as e:
-        print(f"[Notify] 新邮件通知失败: {e}")
-
+# ─── 新邮件系统通知（逻辑在 services.notification，此处仅路由）────────────────
 
 @app.get("/api/copy-code", response_class=HTMLResponse)
 def copy_code_page(code: str = Query("", description="要复制到剪贴板的验证码")):
     """供 Toast「复制验证码」按钮打开：在浏览器中打开此页并执行复制，显示「已复制」。"""
-    escaped = code.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
-    html = f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>复制验证码</title></head>
-<body style="font-family: system-ui; padding: 24px; text-align: center;">
-  <p id="msg">正在复制…</p>
-  <p style="color:#666; font-size:14px;" id="code">{escaped}</p>
-  <script>
-    var code = {json.dumps(code)};
-    if (navigator.clipboard && navigator.clipboard.writeText) {{
-      navigator.clipboard.writeText(code).then(function() {{
-        document.getElementById("msg").textContent = "验证码已复制到剪贴板";
-      }}, function() {{ document.getElementById("msg").textContent = "复制失败，请手动复制上方数字"; }});
-    }} else {{
-      document.getElementById("msg").textContent = "请手动复制上方验证码";
-    }}
-  </script>
-</body></html>"""
-    return HTMLResponse(content=html)
+    return HTMLResponse(content=get_copy_code_html(code))
 
 
 class NotifyNewMailRequest(BaseModel):
@@ -514,18 +407,16 @@ async def notify_new_mail(body: NotifyNewMailRequest):
         and body.folder_id
     ):
         try:
-            account = _get_account(body.account_id)
-            mail_dir = _require_mail_dir(account)
-            mbox_path = str(Path(mail_dir) / body.folder_id.replace("/", "\\"))
+            _, _, mbox_path = resolve_mbox_path(body.account_id, body.folder_id)
             data = await _run(read_email_body, mbox_path, body.first_email_key)
             if data.get("success"):
                 raw = (data.get("text_plain") or "") + " " + (data.get("text_html") or "")
                 if data.get("subject"):
                     raw = (data.get("subject") or "") + " " + raw
-                verification_code = _extract_verification_code(raw)
+                verification_code = extract_verification_code(raw)
         except Exception:
             pass
-    _show_new_mail_notification(
+    show_new_mail_toast(
         body.count,
         body.subjects or [],
         body.from_str or "",
@@ -703,9 +594,7 @@ async def prepare_emails_for_ai(body: PrepareEmailsRequest):
     metadata_only=False 时同时返回正文 Markdown（供 AI 阅读）。
     返回供 AI 摘要/分析的结构化数据。
     """
-    account = _get_account(body.account_id)
-    mail_dir = _require_mail_dir(account)
-    mbox_path = str(Path(mail_dir) / body.folder_id.replace("/", "\\"))
+    _, _, mbox_path = resolve_mbox_path(body.account_id, body.folder_id)
     return await _run(
         _prepare_emails_blocking,
         mbox_path,
@@ -1029,9 +918,7 @@ async def fetch_email_bodies(body: FetchBodiesRequest):
     第二阶段 RAG：按 key 列表批量读取邮件正文（HTML→Markdown）。
     在相关性筛选之后，只拉取高相关性邮件的正文，减少 Token 消耗。
     """
-    account  = _get_account(body.account_id)
-    mail_dir = _require_mail_dir(account)
-    mbox_path = str(Path(mail_dir) / body.folder_id.replace("/", "\\"))
+    _, _, mbox_path = resolve_mbox_path(body.account_id, body.folder_id)
     return await _run(_fetch_bodies_blocking, mbox_path, body.keys, body.max_chars_per_email)
 
 
