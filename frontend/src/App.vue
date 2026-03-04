@@ -153,7 +153,7 @@ function toggleTheme() { applyTheme(!isDark.value) }
 onMounted(async () => {
   // 从后端加载配置（PyWebView 无 localStorage，全部走后端）
   try {
-    const res = await fetch('/api/config')
+    const res = await fetch('/api/config?t=' + Date.now(), { cache: 'no-store' })
     const config = await res.json()
     applyTheme(config.theme === 'dark')
     settingsStore.loadFrom(config.settings)

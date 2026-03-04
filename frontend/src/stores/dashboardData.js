@@ -40,11 +40,21 @@ export const useDashboardDataStore = defineStore('dashboardData', () => {
   const todosLoaded = ref(false)
 
   // ── 过滤后的数据（随 selectedAccount 变化） ─────────────────────────────────
-  /** 当前视图显示的事件列表 */
+  /** 当前视图显示的全部条目（事件+任务，按账号过滤） */
   const filteredEvents = computed(() => {
     if (selectedAccount.value === 'all') return events.value
     return accEvents.value[selectedAccount.value] ?? []
   })
+
+  /** 事件（已发生、仅提醒）：kind === 'event' */
+  const filteredPastEvents = computed(() =>
+    filteredEvents.value.filter(e => (e.kind || 'task') === 'event')
+  )
+
+  /** 任务（待办）：kind === 'task'，用于任务卡片与倒计时 */
+  const filteredTasks = computed(() =>
+    filteredEvents.value.filter(e => (e.kind || 'task') === 'task')
+  )
 
   /** 当前视图的今日简报文本 */
   const currentBrief = computed(() => {
@@ -82,8 +92,13 @@ export const useDashboardDataStore = defineStore('dashboardData', () => {
   /** 当前视图的联系人（从 filteredEvents 的 source_from 聚合） */
   const filteredPeople = computed(() => {
     if (selectedAccount.value === 'all') return people.value
-    // 只保留与当前账号相关的人
-    const emailSet = new Set(filteredEvents.value.map(e => e.source_from).filter(Boolean))
+    const stripQ = (s) => {
+      if (!s || typeof s !== 'string') return s || ''
+      s = s.trim()
+      if (s.length >= 2 && s[0] === '"' && s[s.length - 1] === '"') return s.slice(1, -1).trim()
+      return s
+    }
+    const emailSet = new Set(filteredEvents.value.map(e => stripQ(e.source_from)).filter(Boolean))
     return people.value.filter(p => emailSet.has(p.from) || p.account === selectedAccount.value)
   })
 
@@ -108,11 +123,17 @@ export const useDashboardDataStore = defineStore('dashboardData', () => {
     done:  todos.value.filter(t => t.status === 'done'),
   }))
 
-  /** 未来 7 天内的倒计时事件（deadline / milestone，有明确日期） */
+  /** 未来 7 天内的倒计时（仅任务 kind=task，有明确日期）；排除年份异常（如 2612 笔误） */
   const countdowns = computed(() => {
     const now   = Date.now()
-    return filteredEvents.value
-      .filter(e => (e.type === 'deadline' || e.type === 'milestone') && e.datetime)
+    const types = ['deadline', 'milestone', 'task', 'meeting', 'reminder']
+    const yearOk = (dt) => {
+      if (!dt) return false
+      const y = new Date(dt).getFullYear()
+      return y >= 2020 && y <= 2030
+    }
+    return filteredTasks.value
+      .filter(e => types.includes(e.type) && e.datetime && yearOk(e.datetime))
       .map(e => {
         const ts = new Date(e.datetime).getTime()
         return { ...e, _ts: ts, _diffMs: ts - now }
@@ -122,20 +143,28 @@ export const useDashboardDataStore = defineStore('dashboardData', () => {
       .slice(0, 10)
   })
 
-  /** 今天的事件 */
+  /** 今天的任务（用于日程，仅待办） */
   const todayEvents = computed(() => {
     const today = new Date().toISOString().slice(0, 10)
-    return filteredEvents.value.filter(e => e.datetime?.startsWith(today))
+    return filteredTasks.value.filter(e => e.datetime?.startsWith(today))
   })
 
-  /** 本周的事件（用于 Weekly Schedule） */
+  /** 本周的任务（用于 Weekly Schedule，仅待办）。仅日期无时分时按日期归属周，避免时区导致错周。 */
   const weekEvents = computed(() => {
     const now   = new Date()
     const day   = now.getDay() || 7
     const mon   = new Date(now); mon.setDate(now.getDate() - day + 1); mon.setHours(0,0,0,0)
     const sun   = new Date(mon); sun.setDate(mon.getDate() + 6); sun.setHours(23,59,59,999)
-    return filteredEvents.value.filter(e => {
+    const toYmd = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    const monStr = toYmd(mon)
+    const sunStr = toYmd(sun)
+    return filteredTasks.value.filter(e => {
       if (!e.datetime) return false
+      const dateOnly = !e.datetime.includes('T')
+      if (dateOnly) {
+        const evDate = e.datetime.slice(0, 10)
+        return evDate >= monStr && evDate <= sunStr
+      }
       const t = new Date(e.datetime).getTime()
       return t >= mon.getTime() && t <= sun.getTime()
     })
@@ -207,6 +236,7 @@ export const useDashboardDataStore = defineStore('dashboardData', () => {
           ai_days:  settings.aiDays,
           max_emails_per_folder: 500,
           max_chars_per_email:   1200,
+          force_reextract:       false,
         }),
       })
       // 立即拉一次，让界面尽快显示「提取中」并拿到进度
@@ -216,6 +246,13 @@ export const useDashboardDataStore = defineStore('dashboardData', () => {
       isExtracting.value = false
       extractError.value = e.message
     }
+  }
+
+  async function clearExtractedKeys() {
+    try {
+      await fetch('/api/dashboard/extracted-keys', { method: 'DELETE' })
+      await loadData()
+    } catch (_) {}
   }
 
   let _pollTimer = null
@@ -349,7 +386,7 @@ export const useDashboardDataStore = defineStore('dashboardData', () => {
     // account filter
     selectedAccount,
     // filtered computed
-    filteredEvents, currentBrief, currentStats, filteredTopics, filteredPeople, filteredBriefs,
+    filteredEvents, filteredPastEvents, filteredTasks, currentBrief, currentStats, filteredTopics, filteredPeople, filteredBriefs,
     // original computed (still used internally)
     countdowns, todayEvents, weekEvents, todosByStatus,
     // todos
@@ -357,7 +394,7 @@ export const useDashboardDataStore = defineStore('dashboardData', () => {
     // briefs history
     briefs, briefsLoaded,
     // actions
-    loadData, triggerExtract,
+    loadData, triggerExtract, clearExtractedKeys,
     loadTodos, addTodo, updateTodo, deleteTodo, addTodoFromEvent, isEventAdded, saveTodosOrder,
     loadBriefs, fetchBriefDetail,
   }

@@ -55,17 +55,17 @@
             :style="{ top: nowTop + 'px' }"
           ></div>
 
-          <!-- 事件块 -->
+          <!-- 事件块（仅日期无时间显示为「全天」） -->
           <div
             v-for="ev in day.events"
             :key="ev._id"
             class="event-block"
-            :class="[ev.type, ev.priority]"
+            :class="[ev.type, ev.priority, { 'all-day': ev._allDay }]"
             :style="ev._style"
             :title="ev.title + (ev.description ? '\n' + ev.description : '')"
           >
             <span class="eb-title">{{ ev.title }}</span>
-            <span v-if="ev._duration > 30" class="eb-time">{{ ev._timeStr }}</span>
+            <span v-if="ev._allDay || ev._duration > 30" class="eb-time">{{ ev._timeStr }}</span>
           </div>
         </div>
       </div>
@@ -129,21 +129,33 @@ const weekDays = computed(() => {
   })
 })
 
-// ── 事件定位 ──────────────────────────────────────────────────────────────────
+// ── 事件定位（仅日期无时分时显示「全天」，不堆在 9:00）────────────────────────
 function _eventsForDay(iso) {
   return props.events
     .filter(e => e.datetime?.startsWith(iso))
     .map((e, idx) => {
+      const hasTime = e.datetime && e.datetime.includes('T')
       const d = new Date(e.datetime)
-      const hasTime = e.datetime.includes('T')
-      const startMin = hasTime ? d.getHours() * 60 + d.getMinutes() : 9 * 60
-      const endMin   = e.end_datetime
-        ? (() => { const ed = new Date(e.end_datetime); return ed.getHours() * 60 + ed.getMinutes() })()
-        : startMin + 60
 
-      const top    = (startMin / 60) * SLOT_H
-      const height = Math.max(((endMin - startMin) / 60) * SLOT_H, 20)
-      const timeStr = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+      let startMin, endMin, top, height, timeStr, allDay
+      if (hasTime) {
+        startMin = d.getHours() * 60 + d.getMinutes()
+        endMin   = e.end_datetime
+          ? (() => { const ed = new Date(e.end_datetime); return ed.getHours() * 60 + ed.getMinutes() })()
+          : startMin + 60
+        top      = (startMin / 60) * SLOT_H
+        height   = Math.max(((endMin - startMin) / 60) * SLOT_H, 20)
+        timeStr  = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+        allDay   = false
+      } else {
+        // 仅日期：放在顶部「全天」区，固定一小条，避免全部堆在 9:00
+        startMin = 0
+        endMin   = 30
+        top      = 0
+        height   = 28
+        timeStr  = '全天'
+        allDay   = true
+      }
 
       return {
         ...e,
@@ -151,6 +163,7 @@ function _eventsForDay(iso) {
         _style:    { top: top + 'px', height: height + 'px', left: '2px', right: '2px' },
         _duration: endMin - startMin,
         _timeStr:  timeStr,
+        _allDay:   allDay,
       }
     })
 }
@@ -307,6 +320,7 @@ function onDrop(e, day) {
   transition: filter .1s;
 }
 .event-block:hover { filter: brightness(1.08); }
+.event-block.all-day { border-style: dashed; opacity: .92; }
 .event-block.meeting   { background: rgba(99,102,241,.18);  border-color: #6366f1; color: #6366f1; }
 .event-block.deadline  { background: rgba(244,63,94,.15);   border-color: #f43f5e; color: #f43f5e; }
 .event-block.task      { background: rgba(245,158,11,.15);  border-color: #f59e0b; color: #d97706; }

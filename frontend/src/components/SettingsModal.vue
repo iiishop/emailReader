@@ -294,7 +294,7 @@
           <!-- 底部按钮 -->
           <div class="modal-footer">
             <button class="btn btn-ghost" @click="cancel">取消</button>
-            <button class="btn btn-primary" @click="saveSettings" :disabled="!canSave">
+            <button type="button" class="btn btn-primary" @click="saveSettings" :disabled="!canSave">
               保存设置
             </button>
           </div>

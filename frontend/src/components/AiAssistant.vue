@@ -26,6 +26,10 @@
             </span>
           </div>
           <div class="panel-actions">
+            <button class="hdr-btn hdr-btn-extract" @click.stop="onTriggerExtract()" title="重新提取工作台事件与简报" v-if="settings.isConfigured" :disabled="dash.isExtracting">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="{ spinning: dash.isExtracting }"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              <span class="hdr-btn-label">重新提取</span>
+            </button>
             <button class="hdr-btn" @click.stop="assistant.clearChat()" title="清空对话" v-if="assistant.messages.length">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
                 <polyline points="3 6 5 6 21 6"/>
@@ -202,7 +206,8 @@ import { marked } from 'marked'
 import { useAssistantStore, parseRefs } from '../stores/assistant.js'
 import { useSettingsStore }  from '../stores/settings.js'
 import { useAccountsStore }  from '../stores/accounts.js'
-import { useMailStore }      from '../stores/mail.js'
+import { useMailStore }         from '../stores/mail.js'
+import { useDashboardDataStore } from '../stores/dashboardData.js'
 
 marked.setOptions({ breaks: true, gfm: true })
 
@@ -210,6 +215,11 @@ const assistant = useAssistantStore()
 const settings  = useSettingsStore()
 const accounts  = useAccountsStore()
 const mailStore = useMailStore()
+const dash      = useDashboardDataStore()
+
+function onTriggerExtract() {
+  dash.triggerExtract()
+}
 
 // ── 面板位置 ──────────────────────────────────────────────────────────────────
 const panelRef   = ref(null)
@@ -546,6 +556,10 @@ function highlightRefs(text) {
 }
 .hdr-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
 .hdr-btn.close:hover { background: rgba(239,68,68,.12); color: #ef4444; }
+.hdr-btn-extract { min-width: auto; padding: 0 6px; }
+.hdr-btn-extract:disabled { opacity: .6; cursor: not-allowed; }
+.hdr-btn-label { margin-left: 3px; font-size: 11px; white-space: nowrap; }
+.hdr-btn .spinning { animation: spin 1s linear infinite; }
 
 /* ── 语法提示 ── */
 .syntax-hint {

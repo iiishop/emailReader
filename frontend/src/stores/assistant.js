@@ -208,9 +208,18 @@ export const useAssistantStore = defineStore('assistant', () => {
         }
       }
 
-      // ── 步骤 3：调用主 AI 回答 ─────────────────────────────────────────────
+      // ── 步骤 3：拉取工作台上下文（简报/任务/看板/联系人），供 AI 精确回答 ──
       ragPhase.value = 'answering'
-      const systemContent = _buildSystemPrompt(emailContextText)
+      let dashboardContextText = ''
+      try {
+        const ctxRes = await fetch('/api/dashboard/context-for-assistant')
+        if (ctxRes.ok) {
+          const ctx = await ctxRes.json()
+          dashboardContextText = _formatDashboardContext(ctx)
+        }
+      } catch { /* 忽略，无工作台时继续 */ }
+
+      const systemContent = _buildSystemPrompt(emailContextText, dashboardContextText)
       const historyMsgs = messages.value
         .filter(m => m.role === 'user' || m.role === 'assistant')
         .slice(-20)
@@ -435,19 +444,61 @@ export const useAssistantStore = defineStore('assistant', () => {
     return lines.join('\n')
   }
 
+  // ── 内部：格式化工作台上下文为给 AI 看的文本 ─────────────────────────────
+  function _formatDashboardContext(ctx) {
+    if (!ctx || typeof ctx !== 'object') return ''
+    const lines = ['【工作台与看板上下文（用户的工作台、任务、看板、联系人，请据此精确回答）】', '']
+    if (ctx.brief_excerpt) {
+      lines.push('今日简报摘要：')
+      lines.push(ctx.brief_excerpt)
+      lines.push('')
+    }
+    if (ctx.tasks_count > 0 && Array.isArray(ctx.tasks)) {
+      lines.push(`待办任务/事件（共 ${ctx.tasks_count} 条，以下为部分）：`)
+      ctx.tasks.slice(0, 15).forEach(t => {
+        const title = t?.title || t
+        const dt = t?.datetime || ''
+        const type = t?.type || ''
+        lines.push(`- ${title}${dt ? ' | ' + dt : ''}${type ? ' [' + type + ']' : ''}`)
+      })
+      lines.push('')
+    }
+    if (Array.isArray(ctx.todos_todo) && ctx.todos_todo.length) {
+      lines.push('看板·待办：' + ctx.todos_todo.join('；'))
+    }
+    if (Array.isArray(ctx.todos_doing) && ctx.todos_doing.length) {
+      lines.push('看板·进行中：' + ctx.todos_doing.join('；'))
+    }
+    if (Array.isArray(ctx.todos_done) && ctx.todos_done.length) {
+      lines.push('看板·已完成：' + ctx.todos_done.join('；'))
+    }
+    if ((ctx.todos_todo?.length || 0) + (ctx.todos_doing?.length || 0) + (ctx.todos_done?.length || 0) > 0) {
+      lines.push('')
+    }
+    if (Array.isArray(ctx.people) && ctx.people.length) {
+      lines.push('近期联系人：' + ctx.people.slice(0, 10).join('、'))
+      lines.push('')
+    }
+    lines.push('当用户询问「重新提取」「刷新工作台」时，请告知：请在工作台点击「提取」按钮。')
+    lines.push('当用户询问修改系统提示词或配置时，请告知：请在设置中修改；若需自定义提取规则，可联系管理员。')
+    return lines.join('\n')
+  }
+
   // ── 内部：构建系统提示（所有文本均来自 prompts.yaml，不含硬编码）────────
-  function _buildSystemPrompt(emailContextText) {
+  function _buildSystemPrompt(emailContextText, dashboardContextText) {
     const role       = promptsStore.get('chat', 'role')
     const rules      = promptsStore.get('chat', 'rules')
     const userPrompt = settingsStore.systemPrompt || ''
     const noContext  = promptsStore.get('chat', 'no_context')
 
     const prefix = [role, userPrompt, rules].filter(Boolean).join('\n')
+    const parts = [prefix]
 
-    if (!emailContextText) {
-      return `${prefix}\n\n${noContext}`
-    }
-    return `${prefix}\n\n${emailContextText}`
+    if (dashboardContextText) parts.push(dashboardContextText)
+    if (emailContextText) parts.push(emailContextText)
+    if (!emailContextText && !dashboardContextText) parts.push(noContext)
+
+    return parts.join('\n\n')
   }
 
   // ── 从 Reader 页面快速引用单封邮件 ────────────────────────────────────────

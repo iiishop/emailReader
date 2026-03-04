@@ -100,6 +100,8 @@ function strHash(s) {
 
 function shortNameFrom(from) {
   if (!from) return '?'
+  from = from.trim()
+  if (from.length >= 2 && from[0] === '"' && from[from.length - 1] === '"') from = from.slice(1, -1).trim()
   const m = from.match(/^(.+?)\s*</) ?? from.match(/^([^@]+)/)
   const s = m ? m[1].trim() : from
   return s.length > 8 ? s.slice(0, 7) + '…' : s

@@ -162,6 +162,8 @@ function formatDue(due) {
 }
 function shortFrom(from) {
   if (!from) return ''
+  from = from.trim()
+  if (from.length >= 2 && from[0] === '"' && from[from.length - 1] === '"') from = from.slice(1, -1).trim()
   const m = from.match(/^(.+?)\s*</) || from.match(/^([^@]+)/)
   return (m ? m[1].trim() : from).slice(0, 10)
 }

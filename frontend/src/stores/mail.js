@@ -276,6 +276,18 @@ export const useMailStore = defineStore('mail', () => {
     }
   }
 
+  /**
+   * 从工作台等外部「按账号+文件夹+key」打开一封邮件（先切文件夹再拉正文）。
+   * @param {string} accountId - 账号 ID
+   * @param {object} folder - 文件夹对象，需含 folder_id、name 等
+   * @param {string} key - 邮件 key
+   */
+  async function openEmailAt(accountId, folder, key) {
+    if (!accountId || !folder?.folder_id || !key) return
+    selectFolder(accountId, folder)
+    await fetchEmailBody(key)
+  }
+
   return {
     // folders
     foldersByAccount, foldersLoading, foldersError, selectedFolder,
@@ -286,6 +298,6 @@ export const useMailStore = defineStore('mail', () => {
     emails, totalEmails, emailsLoading, emailsError, hasMore, PAGE_SIZE,
     fetchEmails, refreshEmails, newEmailKeys, forceResetLoading,
     // email body
-    selectedEmail, emailBodyLoading, emailBodyError, fetchEmailBody,
+    selectedEmail, emailBodyLoading, emailBodyError, fetchEmailBody, openEmailAt,
   }
 })

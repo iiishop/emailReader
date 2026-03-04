@@ -76,6 +76,8 @@
           <div v-else class="brief-progress-bar brief-progress-bar-indeterminate"></div>
         </div>
 
+        <div v-if="dash.extractError" class="brief-extract-error">{{ dash.extractError }}</div>
+
         <!-- 操作区 -->
         <div class="brief-actions">
           <button
@@ -90,6 +92,14 @@
               <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
             </svg>
             {{ dash.isExtracting ? '提取中…' : '提取' }}
+          </button>
+          <button
+            class="brief-clear-marks-btn"
+            :disabled="dash.isExtracting"
+            @click="clearExtractedMarks"
+            title="清除已提取标记后，下次点击「提取」将全量重新处理"
+          >
+            清除已提取标记
           </button>
         </div>
       </div>
@@ -159,15 +169,15 @@
       <!-- ── 右窄列：事件流 + 倒计时 + 话题 + 联系人 ── -->
       <div class="side-col">
 
-        <!-- 事件 & 任务 -->
+        <!-- 事件（已发生、仅提醒） -->
         <div class="card card-events">
           <div class="card-hdr">
             <div class="card-hdr-left">
               <span class="card-icon event-icon">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
               </span>
-              <span class="card-title">事件 & 任务</span>
-              <span class="card-badge">{{ dash.filteredEvents.length }}</span>
+              <span class="card-title">事件（已发生）</span>
+              <span class="card-badge">{{ displayedPastEvents.length }}</span>
             </div>
             <select v-model="eventFilter" class="mini-select">
               <option value="">全部</option>
@@ -179,19 +189,74 @@
             </select>
           </div>
           <div class="events-list">
-            <div v-if="!dash.filteredEvents.length && !dash.isExtracting" class="card-empty">
+            <div v-if="!dash.filteredPastEvents.length && !dash.isExtracting" class="card-empty">
+              <span>暂无已发生事件</span>
+            </div>
+            <TransitionGroup name="event-list" tag="div">
+              <div
+                v-for="ev in displayedPastEvents"
+                :key="ev.source_key + ev.title"
+                class="event-item event-item-past"
+                :class="[ev.type, ev.priority, { 'ev-added': dash.isEventAdded(ev) }]"
+                @click.stop="openEventDetail(ev)"
+                @contextmenu.prevent.stop="onEventContextMenu($event, ev)"
+              >
+                <div class="event-type-dot" :class="ev.type"></div>
+                <div class="event-body">
+                  <div class="event-title">{{ ev.title }}</div>
+                  <div class="event-meta">
+                    <span v-if="ev.datetime" class="event-date">{{ formatEventDate(ev.datetime) }}</span>
+                    <span v-if="ev.source_from" class="event-from">{{ shortFrom(ev.source_from) }}</span>
+                  </div>
+                  <div v-if="ev.description" class="event-desc">{{ ev.description }}</div>
+                  <div class="event-tags">
+                    <span v-for="tag in (ev.tags || [])" :key="tag" class="tag">{{ tag }}</span>
+                  </div>
+                </div>
+                <div v-if="canOpenOriginalEmail(ev)" class="event-actions">
+                  <button type="button" class="ev-btn ev-btn-mail" @click.stop="openOriginalEmail(ev)" title="打开原邮件">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                  </button>
+                </div>
+              </div>
+            </TransitionGroup>
+          </div>
+        </div>
+
+        <!-- 任务（待办） -->
+        <div class="card card-tasks">
+          <div class="card-hdr">
+            <div class="card-hdr-left">
+              <span class="card-icon task-icon">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+              </span>
+              <span class="card-title">任务（待办）</span>
+              <span class="card-badge">{{ displayedTasks.length }}</span>
+            </div>
+            <select v-model="taskFilter" class="mini-select">
+              <option value="">全部</option>
+              <option value="meeting">会议</option>
+              <option value="deadline">截止</option>
+              <option value="task">任务</option>
+              <option value="reminder">提醒</option>
+              <option value="milestone">里程碑</option>
+            </select>
+          </div>
+          <div class="events-list">
+            <div v-if="!dash.filteredTasks.length && !dash.isExtracting" class="card-empty">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".3"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
               <span>点击「提取」开始分析</span>
             </div>
             <TransitionGroup name="event-list" tag="div">
               <div
-                v-for="ev in filteredEvents"
+                v-for="ev in displayedTasks"
                 :key="ev.source_key + ev.title"
                 class="event-item"
                 :class="[ev.type, ev.priority, { 'ev-added': dash.isEventAdded(ev) }]"
                 draggable="true"
                 @dragstart="onEventDragStart($event, ev)"
                 @click.stop="openEventDetail(ev)"
+                @contextmenu.prevent.stop="onEventContextMenu($event, ev)"
               >
                 <div class="event-type-dot" :class="ev.type"></div>
                 <div class="event-body">
@@ -210,6 +275,15 @@
                   </div>
                 </div>
                 <div class="event-actions">
+                  <button
+                    v-if="canOpenOriginalEmail(ev)"
+                    type="button"
+                    class="ev-btn ev-btn-mail"
+                    @click.stop="openOriginalEmail(ev)"
+                    title="打开原邮件"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                  </button>
                   <button
                     class="ev-btn"
                     :class="{ 'ev-btn-added': dash.isEventAdded(ev) }"
@@ -242,7 +316,17 @@
               class="countdown-item"
               :class="countdownClass(ev)"
               @click="openEventDetail(ev)"
+              @contextmenu.prevent.stop="onEventContextMenu($event, ev)"
             >
+              <button
+                v-if="canOpenOriginalEmail(ev)"
+                type="button"
+                class="countdown-open-mail"
+                @click.stop="openOriginalEmail(ev)"
+                title="打开原邮件"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+              </button>
               <div class="countdown-type-bar" :class="ev.type"></div>
               <div class="countdown-days">
                 <template v-if="ev._diffMs < 0">
@@ -302,7 +386,7 @@
           </div>
           <div class="people-list">
             <div v-for="p in dash.filteredPeople.slice(0, 6)" :key="p.from" class="person-item" @click="openPersonDetail(p)">
-              <div class="person-avatar">{{ (p.from || '?')[0].toUpperCase() }}</div>
+              <div class="person-avatar">{{ fromInitial(p.from) }}</div>
               <div class="person-body">
                 <div class="person-name">{{ shortFrom(p.from) }}</div>
                 <div class="person-meta">{{ p.count }} 封 · {{ shortDate(p.latest) }}</div>
@@ -477,6 +561,15 @@
             </div>
             <div class="drawer-actions">
               <button
+                v-if="canOpenOriginalEmail(eventModal.event)"
+                type="button"
+                class="drawer-action-btn drawer-action-open-mail"
+                @click="openOriginalEmail(eventModal.event); eventModal.show = false"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                打开原邮件
+              </button>
+              <button
                 class="drawer-action-btn"
                 :class="{ 'drawer-action-added': dash.isEventAdded(eventModal.event) }"
                 @click="dash.addTodoFromEvent(eventModal.event); eventModal.show = false"
@@ -485,6 +578,102 @@
                 <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 {{ dash.isEventAdded(eventModal.event) ? '已加入 Todo（再次加入）' : '加入 Todo' }}
               </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- ══ 右键菜单：删除事件/倒计时 ══ -->
+    <Teleport to="body">
+      <div
+        v-if="ctxMenuVisible"
+        class="ctx-menu"
+        :style="{ left: ctxMenuData.x + 'px', top: ctxMenuData.y + 'px' }"
+        @click.stop
+      >
+        <button type="button" class="ctx-menu-item" @click="openPriorityEditModal(ctxMenuData.event); ctxMenuVisible = false">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          修改优先级…
+        </button>
+        <button type="button" class="ctx-menu-item" @click="openDeleteEventModal(ctxMenuData.event); ctxMenuVisible = false">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          删除并填写原因…
+        </button>
+      </div>
+    </Teleport>
+
+    <!-- ══ 修改优先级弹窗（展示 AI 原因 + 用户原因供后续参考）════ -->
+    <Transition name="drawer-fade">
+      <div v-if="priorityEditModal.show" class="drawer-overlay" @click.self="priorityEditModal.show = false">
+        <div class="drawer-panel drawer-panel-sm">
+          <div class="drawer-hdr">
+            <div class="drawer-hdr-left">
+              <span class="drawer-title">修改优先级</span>
+            </div>
+            <button class="drawer-close" @click="priorityEditModal.show = false">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="drawer-body">
+            <p class="delete-event-title">{{ priorityEditModal.event?.title }}</p>
+            <div class="delete-field">
+              <label>当前优先级</label>
+              <span class="priority-badge" :class="priorityEditModal.event?.priority || 'medium'">{{ priorityLabel(priorityEditModal.event?.priority || 'medium') }}</span>
+            </div>
+            <div class="delete-field" v-if="priorityEditModal.event?.reason">
+              <label>AI 选择该优先级的原因</label>
+              <p class="delete-ai-reason">{{ priorityEditModal.event.reason }}</p>
+            </div>
+            <div class="delete-field">
+              <label>改为优先级</label>
+              <select v-model="priorityEditModal.newPriority" class="field-input">
+                <option value="high">高优先级</option>
+                <option value="medium">中优先级</option>
+                <option value="low">低优先级</option>
+              </select>
+            </div>
+            <div class="delete-field">
+              <label>修改原因（选填，供 AI 后续生成优先级时参考）</label>
+              <input v-model="priorityEditModal.userReason" type="text" class="field-input" placeholder="例如：实际不紧急、需优先处理…" />
+            </div>
+            <div class="drawer-actions" style="margin-top: 1rem;">
+              <button type="button" class="btn btn-ghost" @click="priorityEditModal.show = false">取消</button>
+              <button type="button" class="btn btn-primary" @click="confirmPriorityEdit">确认修改</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- ══ 删除事件弹窗（记录原因 + AI 原因反馈）════ -->
+    <Transition name="drawer-fade">
+      <div v-if="deleteEventModal.show" class="drawer-overlay" @click.self="deleteEventModal.show = false">
+        <div class="drawer-panel drawer-panel-sm">
+          <div class="drawer-hdr">
+            <div class="drawer-hdr-left">
+              <span class="drawer-title">删除该事件 / 任务</span>
+            </div>
+            <button class="drawer-close" @click="deleteEventModal.show = false">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="drawer-body">
+            <p class="delete-event-title">{{ deleteEventModal.event?.title }}</p>
+            <div class="delete-field">
+              <label>删除原因（选填，供 AI 学习）</label>
+              <input v-model="deleteEventModal.userReason" type="text" class="field-input" placeholder="例如：不需要、已处理、误提取…" />
+            </div>
+            <div class="delete-field" v-if="deleteEventModal.event?.reason">
+              <label>AI 生成此条的原因</label>
+              <p class="delete-ai-reason">{{ deleteEventModal.event.reason }}</p>
+              <button type="button" class="btn btn-ghost btn-sm" :class="{ active: deleteEventModal.rejectAiReason }" @click="deleteEventModal.rejectAiReason = !deleteEventModal.rejectAiReason">
+                {{ deleteEventModal.rejectAiReason ? '已标记：不认同该原因' : '不认同该原因' }}
+              </button>
+            </div>
+            <div class="drawer-actions" style="margin-top: 1rem;">
+              <button type="button" class="btn btn-ghost" @click="deleteEventModal.show = false">取消</button>
+              <button type="button" class="btn btn-primary" @click="confirmDeleteEvent">确认删除</button>
             </div>
           </div>
         </div>
@@ -531,10 +720,10 @@
         <div class="drawer-panel drawer-panel-sm">
           <div class="drawer-hdr">
             <div class="drawer-hdr-left">
-              <div class="person-avatar-lg">{{ (personModal.person?.from || '?')[0].toUpperCase() }}</div>
+              <div class="person-avatar-lg">{{ fromInitial(personModal.person?.from) }}</div>
               <div>
                 <div class="drawer-title">{{ shortFrom(personModal.person?.from) }}</div>
-                <div class="drawer-sub">{{ personModal.person?.from }}</div>
+                <div class="drawer-sub">{{ stripQuotes(personModal.person?.from || '') }}</div>
               </div>
             </div>
             <button class="drawer-close" @click="personModal.show = false">
@@ -588,11 +777,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onActivated } from 'vue'
+import { ref, computed, nextTick, onMounted, onActivated } from 'vue'
 import { marked } from 'marked'
 import { useDashboardDataStore } from '../stores/dashboardData.js'
 import { useSettingsStore }      from '../stores/settings.js'
 import { useAccountsStore }      from '../stores/accounts.js'
+import { useMailStore }          from '../stores/mail.js'
+import { useNavigationStore }   from '../stores/navigation.js'
 import WeeklySchedule       from '../components/WeeklySchedule.vue'
 import TodoColumn           from '../components/TodoColumn.vue'
 import ContactGraph         from '../components/ContactGraph.vue'
@@ -603,6 +794,8 @@ marked.setOptions({ breaks: true, gfm: true })
 const dash     = useDashboardDataStore()
 const settings = useSettingsStore()
 const accountsStore = useAccountsStore()
+const mailStore     = useMailStore()
+const navStore      = useNavigationStore()
 
 // ── 图谱全屏浮层（null | 'topic' | 'contact'） ────────────────────────────────
 const graphModal = ref(null)
@@ -640,12 +833,18 @@ const currentBriefPreview = computed(() => {
   return plain.slice(0, 80) + (plain.length > 80 ? '…' : '')
 })
 
-// ── 事件筛选（在 store 的 filteredEvents 基础上再按类型筛） ───────────────────
+// ── 事件/任务类型筛选 ─────────────────────────────────────────────────────────
 const eventFilter = ref('')
-const filteredEvents = computed(() =>
+const taskFilter = ref('')
+const displayedPastEvents = computed(() =>
   eventFilter.value
-    ? dash.filteredEvents.filter(e => e.type === eventFilter.value)
-    : dash.filteredEvents
+    ? dash.filteredPastEvents.filter(e => e.type === eventFilter.value)
+    : dash.filteredPastEvents
+)
+const displayedTasks = computed(() =>
+  taskFilter.value
+    ? dash.filteredTasks.filter(e => e.type === taskFilter.value)
+    : dash.filteredTasks
 )
 
 // ── 周日程 ────────────────────────────────────────────────────────────────────
@@ -664,8 +863,16 @@ const scheduleEvents = computed(() => {
   const day = now.getDay() || 7
   const mon = new Date(now); mon.setDate(now.getDate() - day + 1 + weekOffset.value * 7); mon.setHours(0,0,0,0)
   const sun = new Date(mon); sun.setDate(mon.getDate() + 6); sun.setHours(23,59,59,999)
-  return dash.filteredEvents.filter(e => {
+  const toYmd = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+  const monStr = toYmd(mon)
+  const sunStr = toYmd(sun)
+  return dash.filteredTasks.filter(e => {
     if (!e.datetime) return false
+    const dateOnly = !e.datetime.includes('T')
+    if (dateOnly) {
+      const evDate = e.datetime.slice(0, 10)
+      return evDate >= monStr && evDate <= sunStr
+    }
     const t = new Date(e.datetime).getTime()
     return t >= mon.getTime() && t <= sun.getTime()
   })
@@ -774,6 +981,138 @@ function openEventDetail(ev) {
   eventModal.value = { show: true, event: ev }
 }
 
+/** 是否可打开原邮件（有账号、文件夹、source_key） */
+function canOpenOriginalEmail(ev) {
+  return ev && (ev.account || ev.source_key) && ev.source_key
+}
+
+/** 打开原邮件：解析账号/文件夹后切到邮件视图并打开该封 */
+async function openOriginalEmail(ev) {
+  if (!ev?.source_key) return
+  const accountEmail = (ev.account || '').trim().toLowerCase()
+  const folderName = (ev.folder || 'INBOX').trim()
+  const account = accountsStore.accounts.find(a => (a.email || '').toLowerCase() === accountEmail)
+  if (!account) {
+    alert(`未找到账号：${accountEmail || '（空）'}`)
+    return
+  }
+  let folders = mailStore.foldersByAccount.get(account.account_id) ?? []
+  if (!folders.length) {
+    try {
+      const r = await fetch(`/api/accounts/${account.account_id}/folders`)
+      const d = await r.json()
+      if (d.success) folders = d.folders
+    } catch (e) {
+      alert('获取文件夹列表失败：' + (e.message || ''))
+      return
+    }
+  }
+  const folder = folders.find(f => (f.name || '').toUpperCase() === folderName.toUpperCase()) ||
+    folders.find(f => (f.name || '').toLowerCase().includes(folderName.toLowerCase())) ||
+    folders.find(f => folderName === 'INBOX' && (f.name || '').toUpperCase() === 'INBOX')
+  if (!folder) {
+    alert(`在 ${accountEmail} 下未找到文件夹：${folderName}`)
+    return
+  }
+  navStore.navigate('reader')
+  await mailStore.openEmailAt(account.account_id, folder, ev.source_key)
+}
+
+// ── 右键删除菜单 + 删除事件弹窗（记录原因、AI 学习）────────────────────────────
+const ctxMenuVisible = ref(false)
+const ctxMenuData = ref({ x: 0, y: 0, event: null })
+const deleteEventModal = ref({ show: false, event: null, userReason: '', rejectAiReason: false })
+const priorityEditModal = ref({ show: false, event: null, newPriority: 'medium', userReason: '' })
+
+function onEventContextMenu(e, ev) {
+  ctxMenuData.value = { x: e.clientX, y: e.clientY, event: ev }
+  ctxMenuVisible.value = true
+  nextTick(() => {
+    const close = () => {
+      ctxMenuVisible.value = false
+      document.removeEventListener('click', close)
+    }
+    document.addEventListener('click', close)
+  })
+}
+
+function openDeleteEventModal(ev) {
+  if (!ev) return
+  deleteEventModal.value = {
+    show: true,
+    event: ev,
+    userReason: '',
+    rejectAiReason: false,
+  }
+}
+
+function openPriorityEditModal(ev) {
+  if (!ev) return
+  priorityEditModal.value = {
+    show: true,
+    event: ev,
+    newPriority: (ev.priority || 'medium').toLowerCase(),
+    userReason: '',
+  }
+}
+
+async function confirmPriorityEdit() {
+  const ev = priorityEditModal.value.event
+  if (!ev) return
+  try {
+    const res = await fetch('/api/dashboard/event-priority', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event: {
+          title: ev.title ?? '',
+          datetime: ev.datetime ?? '',
+          source_key: ev.source_key ?? '',
+          priority: ev.priority ?? 'medium',
+          reason: ev.reason ?? undefined,
+        },
+        new_priority: priorityEditModal.value.newPriority,
+        user_reason: priorityEditModal.value.userReason || null,
+      }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || '修改失败')
+    priorityEditModal.value.show = false
+    await dash.loadData()
+  } catch (err) {
+    console.error(err)
+    alert(err.message || '修改失败')
+  }
+}
+
+async function confirmDeleteEvent() {
+  const ev = deleteEventModal.value.event
+  if (!ev) return
+  try {
+    const res = await fetch('/api/dashboard/event-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event: {
+          title: ev.title ?? '',
+          datetime: ev.datetime ?? '',
+          source_key: ev.source_key ?? '',
+          reason: ev.reason ?? undefined,
+        },
+        user_reason: deleteEventModal.value.userReason || null,
+        reject_ai_reason: deleteEventModal.value.rejectAiReason,
+      }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || '删除失败')
+    deleteEventModal.value.show = false
+    await dash.loadData()
+  } catch (err) {
+    console.error(err)
+    alert(err.message || '删除失败')
+  }
+}
+
 const TYPE_LABELS = { meeting: '会议', deadline: '截止', task: '任务', reminder: '提醒', milestone: '里程碑' }
 const PRIORITY_LABELS = { high: '高优先级', medium: '中优先级', low: '低优先级' }
 function typeLabel(t) { return TYPE_LABELS[t] || t || '' }
@@ -842,18 +1181,38 @@ function formatEventDateFull(dt) {
     return dateStr + timeStr
   } catch { return dt }
 }
+function stripQuotes(s) {
+  if (!s || typeof s !== 'string') return s || ''
+  s = s.trim()
+  if (s.length >= 2 && s[0] === '"' && s[s.length - 1] === '"') return s.slice(1, -1).trim()
+  return s
+}
 function shortFrom(from) {
   if (!from) return ''
+  from = stripQuotes(from)
   const m = from.match(/^(.+?)\s*</) || from.match(/^([^@]+)/)
   return (m ? m[1].trim() : from).slice(0, 16)
+}
+function fromInitial(from) {
+  const s = stripQuotes(from || '')
+  if (!s) return '?'
+  const m = s.match(/^(.+?)\s*</) || s.match(/^([^@]+)/)
+  const name = (m ? m[1].trim() : s) || s
+  return (name[0] ?? '?').toUpperCase()
 }
 function shortDate(dt) {
   if (!dt) return ''
   try {
     const d = new Date(dt)
     if (isNaN(d.getTime())) return ''
-    return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+    const time = dt.includes('T') ? ` ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` : ''
+    return `${d.getMonth()+1}/${d.getDate()}${time}`
   } catch { return '' }
+}
+
+async function clearExtractedMarks() {
+  await dash.clearExtractedKeys()
+  await dash.loadData()
 }
 
 // ── 初始化 ────────────────────────────────────────────────────────────────────
@@ -1091,10 +1450,19 @@ onActivated(init)
   line-height: 1.4;
 }
 
+/* 提取错误提示 */
+.brief-extract-error {
+  padding: 6px 14px;
+  font-size: 12px;
+  color: #c00;
+  background: rgba(200, 0, 0, 0.08);
+}
+
 /* 操作区 */
 .brief-actions {
   display: flex;
   align-items: center;
+  gap: 8px;
   padding: 0 14px;
   flex-shrink: 0;
   border-left: 1px solid var(--border);
@@ -1121,6 +1489,17 @@ onActivated(init)
   color: var(--accent);
 }
 .brief-extract-btn:disabled { opacity: .4; cursor: not-allowed; }
+.brief-clear-marks-btn {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.brief-clear-marks-btn:disabled { opacity: .5; cursor: not-allowed; }
 
 /* ══ 主体：左宽 + 右窄 ══ */
 .dashboard-body {
@@ -1198,8 +1577,11 @@ onActivated(init)
 }
 .schedule-icon  { background: rgba(99,102,241,.1);  color: var(--c-meeting); }
 .todo-icon      { background: rgba(16,185,129,.1);  color: var(--c-reminder); }
-.event-icon     { background: rgba(245,158,11,.1);  color: var(--c-task); }
+.event-icon     { background: rgba(100,116,139,.12); color: var(--text-muted); }
+.task-icon      { background: rgba(245,158,11,.1);  color: var(--c-task); }
 .countdown-icon { background: rgba(244,63,94,.1);   color: var(--c-deadline); }
+.event-item-past { opacity: .92; }
+.event-item-past .event-title { color: var(--text-secondary); }
 .topic-icon     { background: rgba(168,85,247,.1);  color: var(--c-milestone); }
 .people-icon    { background: rgba(99,102,241,.1);  color: var(--c-meeting); }
 .stat-icon      { background: rgba(16,185,129,.1);  color: var(--c-reminder); }
@@ -1393,6 +1775,8 @@ onActivated(init)
 }
 .event-item:hover .ev-btn { opacity: 1; }
 .ev-btn:hover { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+.ev-btn-mail { color: var(--text-muted); }
+.ev-btn-mail:hover { color: var(--accent); }
 
 /* 已加入 Todo 的事件样式 */
 .event-item.ev-added {
@@ -1447,6 +1831,18 @@ onActivated(init)
 .countdown-item.overdue { border-color: rgba(244,63,94,.3); background: rgba(244,63,94,.03); }
 .countdown-item.today   { border-color: rgba(245,158,11,.4); background: rgba(245,158,11,.04); }
 .countdown-item.soon    { border-color: rgba(91,94,244,.25); }
+.countdown-open-mail {
+  position: absolute;
+  right: 8px; top: 50%;
+  transform: translateY(-50%);
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: 6px;
+  background: transparent; color: var(--text-muted);
+  cursor: pointer; opacity: .7;
+  transition: color .15s, background .15s;
+}
+.countdown-open-mail:hover { opacity: 1; color: var(--accent); background: var(--accent-dim); }
 
 .countdown-type-bar {
   position: absolute;
@@ -1457,6 +1853,7 @@ onActivated(init)
 .countdown-type-bar.milestone { background: var(--c-milestone); }
 .countdown-type-bar.task      { background: var(--c-task); }
 .countdown-type-bar.meeting   { background: var(--c-meeting); }
+.countdown-type-bar.reminder  { background: var(--c-reminder); }
 
 .countdown-days {
   display: flex;
@@ -1859,6 +2256,144 @@ onActivated(init)
   width: 400px;
   height: auto;
   max-height: calc(100vh - 80px);
+}
+
+/* 右键菜单（高 z-index 保证在 PyWebView/弹窗之上） */
+.ctx-menu {
+  position: fixed;
+  z-index: 99999;
+  min-width: 192px;
+  padding: 6px 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  font-family: inherit;
+}
+.ctx-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  outline: none;
+  transition: background .12s;
+}
+.ctx-menu-item:first-child { border-radius: var(--radius) var(--radius) 0 0; }
+.ctx-menu-item:last-child { border-radius: 0 0 var(--radius) var(--radius); }
+.ctx-menu-item:only-child { border-radius: var(--radius); }
+.ctx-menu-item:hover {
+  background: var(--bg-hover);
+}
+.ctx-menu-item svg {
+  flex-shrink: 0;
+  opacity: .85;
+}
+
+/* 删除 / 修改优先级弹窗：表单与按钮统一样式 */
+.delete-event-title {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.delete-field {
+  margin-bottom: 14px;
+}
+.delete-field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.delete-field .field-input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s;
+}
+.delete-field .field-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99,102,241,.12);
+}
+.delete-field .field-input::placeholder {
+  color: var(--text-muted);
+}
+.delete-field select.field-input {
+  min-height: 38px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 32px;
+}
+.delete-ai-reason {
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin: 4px 0 8px;
+  line-height: 1.5;
+}
+.delete-field .btn-sm.active {
+  background: rgba(244,63,94,.12);
+  color: var(--c-deadline);
+}
+
+/* 弹窗内按钮：取消 / 确认 */
+.drawer-actions .btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid transparent;
+  outline: none;
+  appearance: none;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.drawer-actions .btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+.drawer-actions .btn-ghost:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.drawer-actions .btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.drawer-actions .btn-primary:hover {
+  filter: brightness(1.06);
+}
+.drawer-actions .btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+.drawer-actions .btn-sm.active {
+  border-color: rgba(244,63,94,.35);
 }
 
 /* 弹窗头部 */

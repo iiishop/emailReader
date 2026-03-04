@@ -39,6 +39,7 @@ export const useSettingsStore = defineStore('settings', () => {
       relevanceThreshold: relevanceThreshold.value,
       refreshInterval:    refreshInterval.value,
     }
+    console.log('[Settings] 正在保存配置到 PUT /api/config ...')
     const res = await fetch('/api/config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -46,8 +47,10 @@ export const useSettingsStore = defineStore('settings', () => {
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }))
+      console.error('[Settings] 保存失败', res.status, err)
       throw new Error(err.detail || `保存失败 ${res.status}`)
     }
+    console.log('[Settings] 保存成功')
   }
 
   return { apiBaseUrl, apiKey, selectedModel, systemPrompt, aiDays, relevanceThreshold, refreshInterval, isConfigured, save, loadFrom }
